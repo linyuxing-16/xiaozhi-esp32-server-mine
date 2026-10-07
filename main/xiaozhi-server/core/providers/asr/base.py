@@ -83,6 +83,10 @@ class ASRProviderBase(ABC):
     # 处理语音停止
     async def handle_voice_stop(self, conn: "ConnectionHandler", asr_audio_task: List[bytes]):
         """并行处理ASR和声纹识别"""
+        # 语音停止：通知录像编排器下发stop_record（内部判定会话有效性）
+        video_ctrl = getattr(conn, "video", None)
+        if video_ctrl is not None:
+            video_ctrl.on_speech_stop()
         try:
             total_start_time = time.monotonic()
 

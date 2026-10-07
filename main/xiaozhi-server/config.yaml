@@ -85,6 +85,20 @@ exit_commands:
   - "退出"
   - "关闭"
 
+# 功能开关（Features，可选功能特性）
+features:
+  video_input:                        # VAD触发摄像头录像，视频直入大模型上下文
+    enabled: false                    # 总开关（默认关闭，隐私考虑；开启前请确认合规）
+    trigger_on_vad: true              # 服务端VAD检测到人声上升沿时触发录像
+    trigger_on_listen_start: true     # 客户端本地VAD上报listen start时也触发录像
+    cooldown_ms: 8000                 # 两次录像之间的最小间隔（毫秒），防抖
+    max_duration_ms: 5000             # 单段录像最长时长（毫秒）
+    min_duration_ms: 800              # 短于此时长丢弃（毫秒），防误触
+    upload_wait_timeout_ms: 6000      # chat时等待视频上传的最长时间（毫秒），超时按纯文本回复
+    max_file_mb: 25                   # 上传视频大小上限（MB）
+    keep_video_turns: 1               # 对话上下文中保留视频载荷的最近轮数，更早轮次降级为纯文本
+    tmp_dir: tmp/videos               # 视频上传临时目录（回合结束即删）
+
 xiaozhi:
   type: hello
   version: 1

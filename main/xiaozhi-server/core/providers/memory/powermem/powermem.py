@@ -167,7 +167,9 @@ class MemoryProvider(MemoryProviderBase):
                     if message.role == "system":
                         continue
 
-                    content = message.content
+                    content = (
+                        message.get_text() if hasattr(message, "get_text") else message.content
+                    )
 
                     # Extract content from JSON format if present (for ASR with emotion/language tags)
                     # Same logic as in query_memory method

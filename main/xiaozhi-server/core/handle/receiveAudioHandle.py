@@ -15,8 +15,15 @@ TAG = __name__
 
 
 async def handleAudioMessage(conn: "ConnectionHandler", pcm_frame):
+    # 快照VAD上升沿检测前的状态（silero.is_vad会就地更新conn.client_have_voice）
+    prev_have_voice = conn.client_have_voice
     # 当前片段是否有人说话
     have_voice = conn.vad.is_vad(conn, pcm_frame)
+    # VAD上升沿（人声从无到有）：触发摄像头录像编排器（内部自行判定C1~C4条件，静默降级）
+    if not prev_have_voice and conn.client_have_voice:
+        video_ctrl = getattr(conn, "video", None)
+        if video_ctrl is not None:
+            video_ctrl.on_speech_start(source="vad")
     # 如果设备刚刚被唤醒，短暂忽略VAD检测
     if hasattr(conn, "just_woken_up") and conn.just_woken_up:
         have_voice = False

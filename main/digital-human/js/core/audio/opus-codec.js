@@ -1,85 +1,85 @@
-import { log } from '../../utils/logger.js?v=0205';
+import { log } from '../../utils/logger.js?v=0206';
 
 
-// 检查Opus库是否已加载
+// 妫€鏌pus搴撴槸鍚﹀凡鍔犺浇
 export function checkOpusLoaded() {
     try {
-        // 检查Module是否存在（本地库导出的全局变量）
+        // 妫€鏌odule鏄惁瀛樺湪锛堟湰鍦板簱瀵煎嚭鐨勫叏灞€鍙橀噺锛?
         if (typeof Module === 'undefined') {
-            throw new Error('Opus库未加载，Module对象不存在');
+            throw new Error('Opus搴撴湭鍔犺浇锛孧odule瀵硅薄涓嶅瓨鍦?);
         }
 
-        // 尝试先使用Module.instance（libopus.js最后一行导出方式）
+        // 灏濊瘯鍏堜娇鐢∕odule.instance锛坙ibopus.js鏈€鍚庝竴琛屽鍑烘柟寮忥級
         if (typeof Module.instance !== 'undefined' && typeof Module.instance._opus_decoder_get_size === 'function') {
-            // 使用Module.instance对象替换全局Module对象
+            // 浣跨敤Module.instance瀵硅薄鏇挎崲鍏ㄥ眬Module瀵硅薄
             window.ModuleInstance = Module.instance;
-            log('Opus库加载成功（使用Module.instance）', 'success');
+            log('Opus搴撳姞杞芥垚鍔燂紙浣跨敤Module.instance锛?, 'success');
 
-            // 3秒后隐藏状态
+            // 3绉掑悗闅愯棌鐘舵€?
             const statusElement = document.getElementById('scriptStatus');
             if (statusElement) statusElement.style.display = 'none';
             return;
         }
 
-        // 如果没有Module.instance，检查全局Module函数
+        // 濡傛灉娌℃湁Module.instance锛屾鏌ュ叏灞€Module鍑芥暟
         if (typeof Module._opus_decoder_get_size === 'function') {
             window.ModuleInstance = Module;
-            log('Opus库加载成功（使用全局Module）', 'success');
+            log('Opus搴撳姞杞芥垚鍔燂紙浣跨敤鍏ㄥ眬Module锛?, 'success');
 
-            // 3秒后隐藏状态
+            // 3绉掑悗闅愯棌鐘舵€?
             const statusElement = document.getElementById('scriptStatus');
             if (statusElement) statusElement.style.display = 'none';
             return;
         }
 
-        throw new Error('Opus解码函数未找到，可能Module结构不正确');
+        throw new Error('Opus瑙ｇ爜鍑芥暟鏈壘鍒帮紝鍙兘Module缁撴瀯涓嶆纭?);
     } catch (err) {
-        log(`Opus库加载失败，请检查libopus.js文件是否存在且正确: ${err.message}`, 'error');
+        log(`Opus搴撳姞杞藉け璐ワ紝璇锋鏌ibopus.js鏂囦欢鏄惁瀛樺湪涓旀纭? ${err.message}`, 'error');
     }
 }
 
 
-// 创建一个Opus编码器
+// 鍒涘缓涓€涓狾pus缂栫爜鍣?
 let opusEncoder = null;
 export function initOpusEncoder() {
     try {
         if (opusEncoder) {
-            return opusEncoder; // 已经初始化过
+            return opusEncoder; // 宸茬粡鍒濆鍖栬繃
         }
 
         if (!window.ModuleInstance) {
-            log('无法创建Opus编码器：ModuleInstance不可用', 'error');
+            log('鏃犳硶鍒涘缓Opus缂栫爜鍣細ModuleInstance涓嶅彲鐢?, 'error');
             return;
         }
 
-        // 初始化一个Opus编码器
+        // 鍒濆鍖栦竴涓狾pus缂栫爜鍣?
         const mod = window.ModuleInstance;
-        const sampleRate = 16000; // 16kHz采样率
-        const channels = 1;       // 单声道
+        const sampleRate = 16000; // 16kHz閲囨牱鐜?
+        const channels = 1;       // 鍗曞０閬?
         const application = 2048; // OPUS_APPLICATION_VOIP = 2048
 
-        // 创建编码器
+        // 鍒涘缓缂栫爜鍣?
         opusEncoder = {
             channels: channels,
             sampleRate: sampleRate,
             frameSize: 960, // 60ms @ 16kHz = 60 * 16 = 960 samples
-            maxPacketSize: 4000, // 最大包大小
+            maxPacketSize: 4000, // 鏈€澶у寘澶у皬
             module: mod,
 
-            // 初始化编码器
+            // 鍒濆鍖栫紪鐮佸櫒
             init: function () {
                 try {
-                    // 获取编码器大小
+                    // 鑾峰彇缂栫爜鍣ㄥぇ灏?
                     const encoderSize = mod._opus_encoder_get_size(this.channels);
-                    log(`Opus编码器大小: ${encoderSize}字节`, 'info');
+                    log(`Opus缂栫爜鍣ㄥぇ灏? ${encoderSize}瀛楄妭`, 'info');
 
-                    // 分配内存
+                    // 鍒嗛厤鍐呭瓨
                     this.encoderPtr = mod._malloc(encoderSize);
                     if (!this.encoderPtr) {
-                        throw new Error("无法分配编码器内存");
+                        throw new Error("鏃犳硶鍒嗛厤缂栫爜鍣ㄥ唴瀛?);
                     }
 
-                    // 初始化编码器
+                    // 鍒濆鍖栫紪鐮佸櫒
                     const err = mod._opus_encoder_init(
                         this.encoderPtr,
                         this.sampleRate,
@@ -88,31 +88,31 @@ export function initOpusEncoder() {
                     );
 
                     if (err < 0) {
-                        throw new Error(`Opus编码器初始化失败: ${err}`);
+                        throw new Error(`Opus缂栫爜鍣ㄥ垵濮嬪寲澶辫触: ${err}`);
                     }
 
-                    // 设置位率 (16kbps)
+                    // 璁剧疆浣嶇巼 (16kbps)
                     mod._opus_encoder_ctl(this.encoderPtr, 4002, 16000); // OPUS_SET_BITRATE
 
-                    // 设置复杂度 (0-10, 越高质量越好但CPU使用越多)
+                    // 璁剧疆澶嶆潅搴?(0-10, 瓒婇珮璐ㄩ噺瓒婂ソ浣咰PU浣跨敤瓒婂)
                     mod._opus_encoder_ctl(this.encoderPtr, 4010, 5);     // OPUS_SET_COMPLEXITY
 
-                    // 设置使用DTX (不传输静音帧)
+                    // 璁剧疆浣跨敤DTX (涓嶄紶杈撻潤闊冲抚)
                     mod._opus_encoder_ctl(this.encoderPtr, 4016, 1);     // OPUS_SET_DTX
 
-                    log("Opus编码器初始化成功", 'success');
+                    log("Opus缂栫爜鍣ㄥ垵濮嬪寲鎴愬姛", 'success');
                     return true;
                 } catch (error) {
                     if (this.encoderPtr) {
                         mod._free(this.encoderPtr);
                         this.encoderPtr = null;
                     }
-                    log(`Opus编码器初始化失败: ${error.message}`, 'error');
+                    log(`Opus缂栫爜鍣ㄥ垵濮嬪寲澶辫触: ${error.message}`, 'error');
                     return false;
                 }
             },
 
-            // 编码PCM数据为Opus
+            // 缂栫爜PCM鏁版嵁涓篛pus
             encode: function (pcmData) {
                 if (!this.encoderPtr) {
                     if (!this.init()) {
@@ -123,18 +123,18 @@ export function initOpusEncoder() {
                 try {
                     const mod = this.module;
 
-                    // 为PCM数据分配内存
-                    const pcmPtr = mod._malloc(pcmData.length * 2); // 2字节/int16
+                    // 涓篜CM鏁版嵁鍒嗛厤鍐呭瓨
+                    const pcmPtr = mod._malloc(pcmData.length * 2); // 2瀛楄妭/int16
 
-                    // 将PCM数据复制到HEAP
+                    // 灏哖CM鏁版嵁澶嶅埗鍒癏EAP
                     for (let i = 0; i < pcmData.length; i++) {
                         mod.HEAP16[(pcmPtr >> 1) + i] = pcmData[i];
                     }
 
-                    // 为输出分配内存
+                    // 涓鸿緭鍑哄垎閰嶅唴瀛?
                     const outPtr = mod._malloc(this.maxPacketSize);
 
-                    // 进行编码
+                    // 杩涜缂栫爜
                     const encodedLen = mod._opus_encode(
                         this.encoderPtr,
                         pcmPtr,
@@ -144,27 +144,27 @@ export function initOpusEncoder() {
                     );
 
                     if (encodedLen < 0) {
-                        throw new Error(`Opus编码失败: ${encodedLen}`);
+                        throw new Error(`Opus缂栫爜澶辫触: ${encodedLen}`);
                     }
 
-                    // 复制编码后的数据
+                    // 澶嶅埗缂栫爜鍚庣殑鏁版嵁
                     const opusData = new Uint8Array(encodedLen);
                     for (let i = 0; i < encodedLen; i++) {
                         opusData[i] = mod.HEAPU8[outPtr + i];
                     }
 
-                    // 释放内存
+                    // 閲婃斁鍐呭瓨
                     mod._free(pcmPtr);
                     mod._free(outPtr);
 
                     return opusData;
                 } catch (error) {
-                    log(`Opus编码出错: ${error.message}`, 'error');
+                    log(`Opus缂栫爜鍑洪敊: ${error.message}`, 'error');
                     return null;
                 }
             },
 
-            // 销毁编码器
+            // 閿€姣佺紪鐮佸櫒
             destroy: function () {
                 if (this.encoderPtr) {
                     this.module._free(this.encoderPtr);
@@ -176,7 +176,7 @@ export function initOpusEncoder() {
         opusEncoder.init();
         return opusEncoder;
     } catch (error) {
-        log(`创建Opus编码器失败: ${error.message}`, 'error');
+        log(`鍒涘缓Opus缂栫爜鍣ㄥけ璐? ${error.message}`, 'error');
         return false;
     }
 }

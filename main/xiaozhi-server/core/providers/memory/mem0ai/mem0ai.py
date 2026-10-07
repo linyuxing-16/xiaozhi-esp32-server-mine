@@ -42,7 +42,9 @@ class MemoryProvider(MemoryProviderBase):
                     if message.role == "tool":
                         continue
 
-                    content = message.content
+                    content = (
+                        message.get_text() if hasattr(message, "get_text") else message.content
+                    )
 
                     if content is None:
                         continue

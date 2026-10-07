@@ -88,6 +88,11 @@ async def main():
         get_local_ip(),
         port,
     )
+    logger.bind(tag=TAG).info(
+        "视频上传接口是\thttp://{}:{}/mcp/vision/video",
+        get_local_ip(),
+        port,
+    )
     mcp_endpoint = config.get("mcp_endpoint", None)
     if mcp_endpoint is not None and "你" not in mcp_endpoint:
         # 校验MCP接入点格式

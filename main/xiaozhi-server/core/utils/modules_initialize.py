@@ -36,16 +36,27 @@ def initialize_modules(
     # 初始化LLM模块
     if init_llm:
         select_llm_module = config["selected_module"]["LLM"]
+        llm_config = config["LLM"][select_llm_module]
         llm_type = (
             select_llm_module
-            if "type" not in config["LLM"][select_llm_module]
-            else config["LLM"][select_llm_module]["type"]
+            if "type" not in llm_config
+            else llm_config["type"]
         )
         modules["llm"] = llm.create_instance(
             llm_type,
-            config["LLM"][select_llm_module],
+            llm_config,
         )
-        logger.bind(tag=TAG).info(f"初始化组件: llm成功 {select_llm_module}")
+        # 读取LLM的视频输入能力声明：native=支持视频直传 / none=不支持（默认）
+        video_input_mode = str(llm_config.get("video_input", "none")).strip().lower()
+        if video_input_mode not in ("native", "none"):
+            logger.bind(tag=TAG).warning(
+                f"LLM {select_llm_module} 配置的 video_input={video_input_mode} 无效，按 none 处理"
+            )
+            video_input_mode = "none"
+        modules["llm"].video_input = video_input_mode
+        logger.bind(tag=TAG).info(
+            f"初始化组件: llm成功 {select_llm_module} (视频输入能力: {video_input_mode})"
+        )
 
     # 初始化Intent模块
     if init_intent:

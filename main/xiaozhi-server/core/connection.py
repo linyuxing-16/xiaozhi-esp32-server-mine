@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from core.utils.dialogue import Message, Dialogue
 from core.providers.asr.dto.dto import InterfaceType
 from core.handle.textHandle import handleTextMessage
+from core.handle.videoInputController import VideoInputController
 from core.providers.tools.unified_tool_handler import UnifiedToolHandler
 from plugins_func.loadplugins import auto_import_modules
 from plugins_func.register import Action, ActionResponse, all_function_registry, module_func_map
@@ -77,6 +78,26 @@ DIRECT_ANSWER_TOOL = {
 
 
 class ConnectionHandler:
+    # 活跃连接注册表：device_id -> ConnectionHandler（视频上传接口按设备投递用）
+    _active_connections: Dict[str, "ConnectionHandler"] = {}
+
+    @classmethod
+    def register_active(cls, conn: "ConnectionHandler"):
+        """登记活跃连接（同设备重连时以最新为准）"""
+        if conn.device_id:
+            cls._active_connections[conn.device_id] = conn
+
+    @classmethod
+    def unregister_active(cls, conn: "ConnectionHandler"):
+        """注销活跃连接（仅当登记的就是该连接时才移除）"""
+        if conn.device_id and cls._active_connections.get(conn.device_id) is conn:
+            cls._active_connections.pop(conn.device_id, None)
+
+    @classmethod
+    def get_active_by_device(cls, device_id: str):
+        """按设备ID获取活跃连接"""
+        return cls._active_connections.get(device_id)
+
     def __init__(
             self,
             config: Dict[str, Any],
@@ -200,6 +221,9 @@ class ConnectionHandler:
         # 标记当前是否为来电接听模式
         self.incoming_call = None
 
+        # VAD触发摄像头录像编排器（内部读取features.video_input配置，默认关闭）
+        self.video = VideoInputController(self)
+
     async def handle_connection(self, ws: websockets.ServerConnection):
         try:
             # 获取运行中的事件循环（必须在异步上下文中）
@@ -219,6 +243,8 @@ class ConnectionHandler:
             )
 
             self.device_id = self.headers.get("device-id", None)
+            # 登记到活跃连接注册表（视频上传接口按设备ID投递）
+            self.register_active(self)
 
             # 认证通过,继续处理
             self.websocket = ws
@@ -1052,6 +1078,13 @@ class ConnectionHandler:
         # 更新系统prompt至上下文
         self.dialogue.update_system_message(self.prompt)
 
+    @property
+    def llm_video_mode(self) -> str:
+        """当前LLM的视频输入能力：native=支持视频直传 / none=不支持"""
+        if self.llm is None:
+            return "none"
+        return str(getattr(self.llm, "video_input", "none") or "none").lower()
+
     def chat(self, query, depth=0):
         # 保存当前任务的sentence_id到局部变量，避免被新任务覆盖
         current_sentence_id = None
@@ -1063,7 +1096,30 @@ class ConnectionHandler:
         if depth == 0:
             current_sentence_id = str(uuid.uuid4().hex)
             self.sentence_id = current_sentence_id  # 更新共享属性
-            self.dialogue.put(Message(role="user", content=query))
+            # 视频直入上下文：取走VAD触发录像的待用视频（录像与ASR并行，通常已上传完成）。
+            # 仅当LLM支持视频输入(video_input: native)且功能开启时才等待，否则立即返回None。
+            user_message = None
+            video_ctrl = getattr(self, "video", None)
+            if video_ctrl is not None and query is not None and self.llm_video_mode == "native":
+                video_payload = video_ctrl.take_pending_video()
+                if video_payload is not None:
+                    video_part = video_ctrl.read_video_as_part(video_payload)
+                    if video_part is not None:
+                        self.logger.bind(tag=TAG).info(
+                            "本轮用户消息携带视频，已直入上下文"
+                        )
+                        user_message = Message(
+                            role="user",
+                            content=[
+                                {"type": "text", "text": query},
+                                video_part,
+                            ],
+                            raw_text=query,
+                            has_video=True,
+                        )
+            if user_message is None:
+                user_message = Message(role="user", content=query)
+            self.dialogue.put(user_message)
             self.tts.tts_text_queue.put(
                 TTSMessageDTO(
                     sentence_id=current_sentence_id,
@@ -1144,6 +1200,10 @@ class ConnectionHandler:
                 )
         except Exception as e:
             self.logger.bind(tag=TAG).error(f"LLM 处理出错 {query}: {e}")
+            if depth == 0:
+                video_ctrl = getattr(self, "video", None)
+                keep_turns = video_ctrl.keep_video_turns if video_ctrl is not None else 1
+                self.dialogue.release_stored_video(keep_turns)
             return None
 
         # 处理流式响应
@@ -1391,6 +1451,10 @@ class ConnectionHandler:
                     self.dialogue.get_llm_dialogue(), indent=4, ensure_ascii=False
                 )
             )
+            # 回合结束：就地降级释放旧轮次视频载荷，防止base64驻留内存
+            video_ctrl = getattr(self, "video", None)
+            keep_turns = video_ctrl.keep_video_turns if video_ctrl is not None else 1
+            self.dialogue.release_stored_video(keep_turns)
 
         return True
 
@@ -1543,6 +1607,17 @@ class ConnectionHandler:
     async def close(self, ws=None):
         """资源清理方法"""
         try:
+            # 清理录像编排器：取消定时器、删除未消费的视频临时文件
+            if getattr(self, "video", None) is not None:
+                try:
+                    self.video.close()
+                except Exception as video_error:
+                    self.logger.bind(tag=TAG).error(
+                        f"清理录像编排器时出错: {video_error}"
+                    )
+                # 从活跃连接注册表注销
+                self.unregister_active(self)
+
             # 清理 VAD 连接资源
             if (
                     hasattr(self, "vad")

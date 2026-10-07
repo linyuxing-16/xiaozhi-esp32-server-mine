@@ -73,7 +73,11 @@ class LLMProvider(LLMProviderBase):
 
     @staticmethod
     def normalize_dialogue(dialogue):
-        """自动修复 dialogue 中缺失 content 的消息"""
+        """自动修复 dialogue 中缺失 content 的消息
+
+        多模态消息（content 为分片数组，如text+video_url）原样放行，
+        由OpenAI兼容接口透传给支持多模态的模型。
+        """
         for msg in dialogue:
             if "role" in msg and "content" not in msg:
                 msg["content"] = ""

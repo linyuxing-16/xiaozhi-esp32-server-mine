@@ -1,7 +1,7 @@
 // Audio recording module
-import { log } from '../../utils/logger.js?v=0205';
-import { initOpusEncoder } from './opus-codec.js?v=0205';
-import { getAudioPlayer } from './player.js?v=0205';
+import { log } from '../../utils/logger.js?v=0206';
+import { initOpusEncoder } from './opus-codec.js?v=0206';
+import { getAudioPlayer } from './player.js?v=0206';
 
 // Audio recorder class
 export class AudioRecorder {
@@ -102,18 +102,18 @@ export class AudioRecorder {
                         this.processPCMBuffer(event.data.buffer);
                     }
                 };
-                log('使用AudioWorklet处理音频', 'success');
+                log('浣跨敤AudioWorklet澶勭悊闊抽', 'success');
                 const silent = this.audioContext.createGain();
                 silent.gain.value = 0;
                 audioProcessor.connect(silent);
                 silent.connect(this.audioContext.destination);
                 return { node: audioProcessor, type: 'worklet' };
             } else {
-                log('AudioWorklet不可用，使用ScriptProcessorNode作为后备方案', 'warning');
+                log('AudioWorklet涓嶅彲鐢紝浣跨敤ScriptProcessorNode浣滀负鍚庡鏂规', 'warning');
                 return this.createScriptProcessor();
             }
         } catch (error) {
-            log(`创建音频处理器失败: ${error.message}，尝试后备方案`, 'error');
+            log(`鍒涘缓闊抽澶勭悊鍣ㄥけ璐? ${error.message}锛屽皾璇曞悗澶囨柟妗坄, 'error');
             return this.createScriptProcessor();
         }
     }
@@ -136,10 +136,10 @@ export class AudioRecorder {
             silent.gain.value = 0;
             scriptProcessor.connect(silent);
             silent.connect(this.audioContext.destination);
-            log('使用ScriptProcessorNode作为后备方案成功', 'warning');
+            log('浣跨敤ScriptProcessorNode浣滀负鍚庡鏂规鎴愬姛', 'warning');
             return { node: scriptProcessor, type: 'processor' };
         } catch (fallbackError) {
-            log(`后备方案也失败: ${fallbackError.message}`, 'error');
+            log(`鍚庡鏂规涔熷け璐? ${fallbackError.message}`, 'error');
             return null;
         }
     }
@@ -162,7 +162,7 @@ export class AudioRecorder {
     // Encode and send Opus data
     encodeAndSendOpus(pcmData = null) {
         if (!this.opusEncoder) {
-            log('Opus编码器未初始化', 'error');
+            log('Opus缂栫爜鍣ㄦ湭鍒濆鍖?, 'error');
             return;
         }
         try {
@@ -175,11 +175,11 @@ export class AudioRecorder {
                         try {
                             this.websocket.send(opusData.buffer);
                         } catch (error) {
-                            log(`WebSocket发送错误: ${error.message}`, 'error');
+                            log(`WebSocket鍙戦€侀敊璇? ${error.message}`, 'error');
                         }
                     }
                 } else {
-                    log('Opus编码失败，未返回有效数据', 'error');
+                    log('Opus缂栫爜澶辫触锛屾湭杩斿洖鏈夋晥鏁版嵁', 'error');
                 }
             } else {
                 if (this.pcmDataBuffer.length > 0) {
@@ -195,7 +195,7 @@ export class AudioRecorder {
                 }
             }
         } catch (error) {
-            log(`Opus编码错误: ${error.message}`, 'error');
+            log(`Opus缂栫爜閿欒: ${error.message}`, 'error');
         }
     }
 
@@ -204,10 +204,10 @@ export class AudioRecorder {
         if (this.isRecording) return false;
         try {
             if (!this.initEncoder()) {
-                log('无法开始录音: Opus编码器初始化失败', 'error');
+                log('鏃犳硶寮€濮嬪綍闊? Opus缂栫爜鍣ㄥ垵濮嬪寲澶辫触', 'error');
                 return false;
             }
-            log('请至少录制1-2秒音频以确保收集足够的数据', 'info');
+            log('璇疯嚦灏戝綍鍒?-2绉掗煶棰戜互纭繚鏀堕泦瓒冲鐨勬暟鎹?, 'info');
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000, channelCount: 1 } });
             this.audioContext = this.getAudioContext();
             if (this.audioContext.state === 'suspended') {
@@ -215,7 +215,7 @@ export class AudioRecorder {
             }
             const processorResult = await this.createAudioProcessor();
             if (!processorResult) {
-                log('无法创建音频处理器', 'error');
+                log('鏃犳硶鍒涘缓闊抽澶勭悊鍣?, 'error');
                 return false;
             }
             this.audioProcessor = processorResult.node;
@@ -234,9 +234,9 @@ export class AudioRecorder {
             }
             // Send listening start message
             if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
-                log(`已发送录音开始消息`, 'info');
+                log(`宸插彂閫佸綍闊冲紑濮嬫秷鎭痐, 'info');
             } else {
-                log('WebSocket未连接，无法发送开始消息', 'error');
+                log('WebSocket鏈繛鎺ワ紝鏃犳硶鍙戦€佸紑濮嬫秷鎭?, 'error');
                 return false;
             }
             // Start visualization
@@ -256,10 +256,10 @@ export class AudioRecorder {
                     this.onRecordingStart(recordingSeconds);
                 }
             }, 100);
-            log('已开始PCM直接录音', 'success');
+            log('宸插紑濮婸CM鐩存帴褰曢煶', 'success');
             return true;
         } catch (error) {
-            log(`直接录音启动错误: ${error.message}`, 'error');
+            log(`鐩存帴褰曢煶鍚姩閿欒: ${error.message}`, 'error');
             this.isRecording = false;
             return false;
         }
@@ -308,15 +308,15 @@ export class AudioRecorder {
             if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
                 const emptyOpusFrame = new Uint8Array(0);
                 this.websocket.send(emptyOpusFrame);
-                log('已发送录音停止信号', 'info');
+                log('宸插彂閫佸綍闊冲仠姝俊鍙?, 'info');
             }
             if (this.onRecordingStop) {
                 this.onRecordingStop();
             }
-            log('已停止PCM直接录音', 'success');
+            log('宸插仠姝CM鐩存帴褰曢煶', 'success');
             return true;
         } catch (error) {
-            log(`直接录音停止错误: ${error.message}`, 'error');
+            log(`鐩存帴褰曢煶鍋滄閿欒: ${error.message}`, 'error');
             return false;
         }
     }
@@ -344,7 +344,7 @@ export function getAudioRecorder() {
 export async function checkMicrophoneAvailability() {
     // Check if browser supports getUserMedia API
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        log('浏览器不支持getUserMedia API', 'warning');
+        log('娴忚鍣ㄤ笉鏀寔getUserMedia API', 'warning');
         return false;
     }
     try {
@@ -352,10 +352,10 @@ export async function checkMicrophoneAvailability() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000, channelCount: 1 } });
         // Immediately stop all tracks to release microphone
         stream.getTracks().forEach(track => track.stop());
-        log('麦克风可用性检查成功', 'success');
+        log('楹﹀厠椋庡彲鐢ㄦ€ф鏌ユ垚鍔?, 'success');
         return true;
     } catch (error) {
-        log(`麦克风不可用: ${error.message}`, 'warning');
+        log(`楹﹀厠椋庝笉鍙敤: ${error.message}`, 'warning');
         return false;
     }
 }

@@ -240,12 +240,17 @@ async def send_mcp_initialize_message(conn: "ConnectionHandler"):
 
     vision_url = get_vision_url(conn.config)
 
+    # 视频上传地址：与视觉分析接口同源，路径替换为 /mcp/vision/video
+    video_url = vision_url.replace("/mcp/vision/explain", "/mcp/vision/video")
+
     # 密钥生成token
     auth = AuthToken(conn.config["server"]["auth_key"])
     token = auth.generate_token(conn.headers.get("device-id"))
 
     vision = {
         "url": vision_url,
+        # 视频上传接口地址（向后兼容：老固件/老客户端会忽略此字段）
+        "video_url": video_url,
         "token": token,
     }
 

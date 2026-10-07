@@ -35,12 +35,20 @@ class ListenTextMessageHandler(TextMessageHandler):
         if msg_json["state"] == "start":
             # 设备从播放模式切回录音模式,清除所有音频状态和缓冲区
             conn.reset_audio_states()
+            # 客户端本地VAD上报人声开始：作为录像触发点（内部判定C1~C4，静默降级）
+            video_ctrl = getattr(conn, "video", None)
+            if video_ctrl is not None:
+                video_ctrl.on_speech_start(source="listen")
         elif msg_json["state"] == "stop":
             # 收到stop但asr未初始化，跳过处理
             if conn.asr is None:
                 return
 
             conn.client_voice_stop = True
+            # 客户端本地VAD上报人声结束：通知录像编排器下发stop_record
+            video_ctrl = getattr(conn, "video", None)
+            if video_ctrl is not None:
+                video_ctrl.on_speech_stop()
             if conn.asr.interface_type == InterfaceType.STREAM:
                 # 流式模式下，发送结束请求
                 asyncio.create_task(conn.asr._send_stop_request())

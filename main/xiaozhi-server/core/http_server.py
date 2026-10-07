@@ -3,6 +3,7 @@ from aiohttp import web
 from config.logger import setup_logging
 from core.api.ota_handler import OTAHandler
 from core.api.vision_handler import VisionHandler
+from core.api.video_handler import VideoHandler
 
 TAG = __name__
 
@@ -13,6 +14,7 @@ class SimpleHttpServer:
         self.logger = setup_logging()
         self.ota_handler = OTAHandler(config)
         self.vision_handler = VisionHandler(config)
+        self.video_handler = VideoHandler(config)
 
     def _get_websocket_url(self, local_ip: str, port: int) -> str:
         """获取websocket地址
@@ -40,7 +42,11 @@ class SimpleHttpServer:
             port = int(server_config.get("http_port", 8003))
 
             if port:
-                app = web.Application()
+                # 放宽请求体上限（默认1MB），避免抢占视频上传接口的精确大小校验；
+                # 实际上限由 VideoHandler 按配置精确控制并返回413
+                video_cfg = (self.config.get("features", {}) or {}).get("video_input", {}) or {}
+                max_file_mb = int(video_cfg.get("max_file_mb", 25))
+                app = web.Application(client_max_size=(max_file_mb + 8) * 1024 * 1024)
 
                 if not read_config_from_api:
                     # 如果没有开启智控台，只是单模块运行，就需要再添加简单OTA接口，用于下发websocket接口
@@ -72,6 +78,9 @@ class SimpleHttpServer:
                         web.options(
                             "/mcp/vision/explain", self.vision_handler.handle_options
                         ),
+                        # 视频上传接口：VAD触发录像后客户端上传视频，直入大模型上下文
+                        web.get("/mcp/vision/video", self.video_handler.handle_get),
+                        web.post("/mcp/vision/video", self.video_handler.handle_post),
                     ]
                 )
 

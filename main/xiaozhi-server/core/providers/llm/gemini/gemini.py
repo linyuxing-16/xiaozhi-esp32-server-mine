@@ -125,6 +125,55 @@ class LLMProvider(LLMProviderBase):
     def response_with_functions(self, session_id, dialogue, functions=None):
         yield from self._generate(dialogue, self._build_tools(functions))
 
+    @staticmethod
+    def _build_part(seg) -> dict | None:
+        """把OpenAI兼容的内容分片映射为Gemini parts条目。
+
+        支持：text（文本）、video_url（视频，内联base64）、image_url（图片，内联base64）。
+        data URL格式: data:<mime>;base64,<数据>
+        """
+        if not isinstance(seg, dict):
+            return None
+        seg_type = seg.get("type")
+        if seg_type == "text":
+            text = seg.get("text", "")
+            if text:
+                return {"text": str(text)}
+            return None
+        if seg_type in ("video_url", "image_url"):
+            payload = seg.get(seg_type) or {}
+            url = payload.get("url", "") if isinstance(payload, dict) else ""
+            if not url:
+                return None
+            mime_type = "video/webm"
+            data = ""
+            if url.startswith("data:"):
+                # data:<mime>;base64,<data>
+                header, _, data = url.partition(",")
+                mime_type = header[5:].split(";")[0] or mime_type
+            else:
+                # http链接暂不内联，跳过（Gemini需要file_api上传，此处仅支持base64直传）
+                return None
+            inline = {"mime_type": mime_type, "data": data}
+            # genai SDK 的 contents/parts 支持dict形式，inline_data自动映射为proto
+            return {"inline_data": inline}
+        return None
+
+    @staticmethod
+    def _build_parts_from_content(content) -> list:
+        """content为分片数组时映射为Gemini parts；字符串时按纯文本处理"""
+        parts: list = []
+        if isinstance(content, list):
+            for seg in content:
+                part = LLMProvider._build_part(seg)
+                if part is not None:
+                    parts.append(part)
+        else:
+            text = str(content or "")
+            if text:
+                parts.append({"text": text})
+        return parts
+
     def _generate(self, dialogue, tools):
         role_map = {"assistant": "model", "user": "user"}
         contents: list = []
@@ -158,10 +207,11 @@ class LLMProvider(LLMProviderBase):
                 )
                 continue
 
+            # 多模态消息：content为分片数组（text/video_url/image_url）按类型映射
             contents.append(
                 {
                     "role": role_map.get(r, "user"),
-                    "parts": [{"text": str(m.get("content", ""))}],
+                    "parts": self._build_parts_from_content(m.get("content")),
                 }
             )
 

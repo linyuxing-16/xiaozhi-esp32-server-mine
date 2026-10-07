@@ -149,7 +149,7 @@ class MemoryProvider(MemoryProviderBase):
 
         msgStr = ""
         for msg in msgs:
-            content = msg.content
+            content = msg.get_text() if hasattr(msg, "get_text") else msg.content
 
             # Extract content from JSON format if present (for ASR with emotion/language tags)
             try:
