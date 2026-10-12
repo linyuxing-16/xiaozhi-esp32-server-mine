@@ -1,36 +1,37 @@
 import { log } from '../../utils/logger.js?v=0206';
 
 // ==========================================
-// MCP 宸ュ叿绠＄悊閫昏緫
+// MCP 工具管理逻辑
 // ==========================================
 
-// 鍏ㄥ眬鍙橀噺
+// 全局变量
 let mcpTools = [];
 let mcpEditingIndex = null;
 let mcpProperties = [];
-let websocket = null; // 灏嗕粠澶栭儴璁剧疆
+let websocket = null; // 将从外部设置
 
 /**
- * 璁剧疆 WebSocket 瀹炰緥
- * @param {WebSocket} ws - WebSocket 杩炴帴瀹炰緥
+ * 设置 WebSocket 实例
+ * @param {WebSocket} ws - WebSocket 连接实例
  */
 export function setWebSocket(ws) {
     websocket = ws;
 }
 
 /**
- * 鍒濆鍖?MCP 宸ュ叿
+ * 初始化 MCP 工具
  */
 export async function initMcpTools() {
-    // 鍔犺浇榛樿宸ュ叿鏁版嵁
+    // 加载默认工具数据
     const defaultMcpTools = await fetch("js/config/default-mcp-tools.json").then(res => res.json());
     const savedTools = localStorage.getItem('mcpTools');
     if (savedTools) {
         try {
             const parsedTools = JSON.parse(savedTools);
-            // 鍚堝苟榛樿宸ュ叿鍜岀敤鎴蜂繚瀛樼殑宸ュ叿锛屼繚鐣欑敤鎴疯嚜瀹氫箟鐨勫伐鍏?
+            // 合并默认工具和用户保存的工具，保留用户自定义的工具
+
             const defaultToolNames = new Set(defaultMcpTools.map(t => t.name));
-            // 娣诲姞榛樿宸ュ叿涓笉瀛樺湪鐨勬柊宸ュ叿
+            // 添加默认工具中不存在的新工具
             parsedTools.forEach(tool => {
                 if (!defaultToolNames.has(tool.name)) {
                     defaultMcpTools.push(tool);
@@ -38,7 +39,7 @@ export async function initMcpTools() {
             });
             mcpTools = defaultMcpTools;
         } catch (e) {
-            log('鍔犺浇MCP宸ュ叿澶辫触锛屼娇鐢ㄩ粯璁ゅ伐鍏?, 'warning');
+            log('加载MCP工具失败，使用默认工具', 'warning');
             mcpTools = [...defaultMcpTools];
         }
     } else {
@@ -49,7 +50,7 @@ export async function initMcpTools() {
 }
 
 /**
- * 娓叉煋宸ュ叿鍒楄〃
+ * 渲染工具列表
  */
 function renderMcpTools() {
     const container = document.getElementById('mcpToolsContainer');
@@ -58,10 +59,10 @@ function renderMcpTools() {
         return; // Container not found, skip rendering
     }
     if (countSpan) {
-        countSpan.textContent = `${mcpTools.length} 涓伐鍏穈;
+        countSpan.textContent = `${mcpTools.length} 个工具`;
     }
     if (mcpTools.length === 0) {
-        container.innerHTML = '<div style="text-align: center; padding: 30px; color: #999;">鏆傛棤宸ュ叿锛岀偣鍑讳笅鏂规寜閽坊鍔犳柊宸ュ叿</div>';
+        container.innerHTML = '<div style="text-align: center; padding: 30px; color: #999;">暂无工具，点击下方按钮添加新工具</div>';
         return;
     }
     container.innerHTML = mcpTools.map((tool, index) => {
@@ -74,22 +75,22 @@ function renderMcpTools() {
                     <div class="mcp-tool-name">${tool.name}</div>
                     <div class="mcp-tool-actions">
                         <button class="mcp-edit-btn" onclick="window.mcpModule.editMcpTool(${index})">
-                            鉁忥笍 缂栬緫
+                            ✏️ 编辑
                         </button>
                         <button class="mcp-delete-btn" onclick="window.mcpModule.deleteMcpTool(${index})">
-                            馃棏锔?鍒犻櫎
+                            🗑️ 删除
                         </button>
                     </div>
                 </div>
                 <div class="mcp-tool-description">${tool.description}</div>
                 <div class="mcp-tool-info">
                     <div class="mcp-tool-info-row">
-                        <span class="mcp-tool-info-label">鍙傛暟鏁伴噺:</span>
-                        <span class="mcp-tool-info-value">${paramCount} 涓?${requiredCount > 0 ? `(${requiredCount} 涓繀濉?` : ''}</span>
+                        <span class="mcp-tool-info-label">参数数量:</span>
+                        <span class="mcp-tool-info-value">${paramCount} 个 ${requiredCount > 0 ? `(${requiredCount} 个必填)` : ''}</span>
                     </div>
                     <div class="mcp-tool-info-row">
-                        <span class="mcp-tool-info-label">妯℃嫙杩斿洖:</span>
-                        <span class="mcp-tool-info-value">${hasMockResponse ? '鉁?宸查厤缃? ' + JSON.stringify(tool.mockResponse) : '鈿?浣跨敤榛樿'}</span>
+                        <span class="mcp-tool-info-label">模拟返回:</span>
+                        <span class="mcp-tool-info-value">${hasMockResponse ? '✅ 已配置: ' + JSON.stringify(tool.mockResponse) : '⚪ 使用默认'}</span>
                     </div>
                 </div>
             </div>
@@ -98,7 +99,7 @@ function renderMcpTools() {
 }
 
 /**
- * 娓叉煋鍙傛暟鍒楄〃
+ * 渲染参数列表
  */
 function renderMcpProperties() {
     const container = document.getElementById('mcpPropertiesContainer');
@@ -119,55 +120,55 @@ function renderMcpProperties() {
     container.innerHTML = mcpProperties.map((prop, index) => `
         <div class="mcp-property-card" onclick="window.mcpModule.editMcpProperty(${index})">
             <div class="mcp-property-row-label">
-                <span class="mcp-property-label">鍙傛暟鍚嶇О</span>
-                <span class="mcp-property-value">${prop.name}${prop.required ? ' <span class="mcp-property-required-badge">[蹇呭～]</span>' : ''}</span>
+                <span class="mcp-property-label">参数名称</span>
+                <span class="mcp-property-value">${prop.name}${prop.required ? ' <span class="mcp-property-required-badge">[必填]</span>' : ''}</span>
             </div>
             <div class="mcp-property-row-label">
-                <span class="mcp-property-label">鏁版嵁绫诲瀷</span>
+                <span class="mcp-property-label">数据类型</span>
                 <span class="mcp-property-value">${getTypeLabel(prop.type)}</span>
             </div>
             <div class="mcp-property-row-label">
-                <span class="mcp-property-label">鎻忚堪</span>
+                <span class="mcp-property-label">描述</span>
                 <span class="mcp-property-value">${prop.description || '-'}</span>
             </div>
             <div class="mcp-property-row-action">
-                <button class="mcp-property-delete-btn" onclick="event.stopPropagation(); window.mcpModule.deleteMcpProperty(${index})">鍒犻櫎</button>
+                <button class="mcp-property-delete-btn" onclick="event.stopPropagation(); window.mcpModule.deleteMcpProperty(${index})">删除</button>
             </div>
         </div>
     `).join('');
 }
 
 /**
- * 鑾峰彇鏁版嵁绫诲瀷鏍囩
+ * 获取数据类型标签
  */
 function getTypeLabel(type) {
     const typeMap = {
-        'string': '瀛楃涓?,
-        'integer': '鏁存暟',
-        'number': '鏁板瓧',
-        'boolean': '甯冨皵鍊?,
-        'array': '鏁扮粍',
-        'object': '瀵硅薄'
+        'string': '字符串',
+        'integer': '整数',
+        'number': '数字',
+        'boolean': '布尔值',
+        'array': '数组',
+        'object': '对象'
     };
     return typeMap[type] || type;
 }
 
 /**
- * 娣诲姞鍙傛暟 - 鎵撳紑鍙傛暟缂栬緫妯℃€佹
+ * 添加参数 - 打开参数编辑模态框
  */
 function addMcpProperty() {
     openPropertyModal();
 }
 
 /**
- * 缂栬緫鍙傛暟 - 鎵撳紑鍙傛暟缂栬緫妯℃€佹
+ * 编辑参数 - 打开参数编辑模态框
  */
 function editMcpProperty(index) {
     openPropertyModal(index);
 }
 
 /**
- * 鎵撳紑鍙傛暟缂栬緫妯℃€佹
+ * 打开参数编辑模态框
  */
 function openPropertyModal(index = null) {
     const form = document.getElementById('mcpPropertyForm');
@@ -176,7 +177,7 @@ function openPropertyModal(index = null) {
 
     if (index !== null) {
         const prop = mcpProperties[index];
-        title.textContent = '缂栬緫鍙傛暟';
+        title.textContent = '编辑参数';
         document.getElementById('mcpPropertyName').value = prop.name;
         document.getElementById('mcpPropertyType').value = prop.type || 'string';
         document.getElementById('mcpPropertyMinimum').value = prop.minimum !== undefined ? prop.minimum : '';
@@ -184,7 +185,7 @@ function openPropertyModal(index = null) {
         document.getElementById('mcpPropertyDescription').value = prop.description || '';
         document.getElementById('mcpPropertyRequired').checked = prop.required || false;
     } else {
-        title.textContent = '娣诲姞鍙傛暟';
+        title.textContent = '添加参数';
         form.reset();
         document.getElementById('mcpPropertyName').value = `param_${mcpProperties.length + 1}`;
         document.getElementById('mcpPropertyType').value = 'string';
@@ -199,14 +200,15 @@ function openPropertyModal(index = null) {
 }
 
 /**
- * 鍏抽棴鍙傛暟缂栬緫妯℃€佹
+ * 关闭参数编辑模态框
  */
 function closePropertyModal() {
     document.getElementById('mcpPropertyModal').style.display = 'none';
 }
 
 /**
- * 鏇存柊鏁板€艰寖鍥磋緭鍏ユ鐨勫彲瑙佹€?
+ * 更新数值范围输入框的可见性
+
  */
 function updatePropertyRangeVisibility() {
     const type = document.getElementById('mcpPropertyType').value;
@@ -219,7 +221,7 @@ function updatePropertyRangeVisibility() {
 }
 
 /**
- * 澶勭悊鍙傛暟琛ㄥ崟鎻愪氦
+ * 处理参数表单提交
  */
 function handlePropertySubmit(e) {
     e.preventDefault();
@@ -231,10 +233,11 @@ function handlePropertySubmit(e) {
     const description = document.getElementById('mcpPropertyDescription').value.trim();
     const required = document.getElementById('mcpPropertyRequired').checked;
 
-    // 妫€鏌ュ悕绉伴噸澶?
+    // 检查名称重复
+
     const isDuplicate = mcpProperties.some((p, i) => i !== index && p.name === name);
     if (isDuplicate) {
-        alert('鍙傛暟鍚嶇О宸插瓨鍦紝璇蜂娇鐢ㄤ笉鍚岀殑鍚嶇О');
+        alert('参数名称已存在，请使用不同的名称');
         return;
     }
 
@@ -245,7 +248,8 @@ function handlePropertySubmit(e) {
         required
     };
 
-    // 鏁板€肩被鍨嬫坊鍔犺寖鍥撮檺鍒?
+    // 数值类型添加范围限制
+
     if (type === 'integer' || type === 'number') {
         if (minimum !== '') {
             propData.minimum = parseFloat(minimum);
@@ -266,7 +270,7 @@ function handlePropertySubmit(e) {
 }
 
 /**
- * 鍒犻櫎鍙傛暟
+ * 删除参数
  */
 function deleteMcpProperty(index) {
     mcpProperties.splice(index, 1);
@@ -274,7 +278,7 @@ function deleteMcpProperty(index) {
 }
 
 /**
- * 璁剧疆浜嬩欢鐩戝惉
+ * 设置事件监听
  */
 function setupMcpEventListeners() {
     const panel = document.getElementById('mcpToolsPanel');
@@ -285,7 +289,7 @@ function setupMcpEventListeners() {
     const form = document.getElementById('mcpToolForm');
     const addPropertyBtn = document.getElementById('addMcpPropertyBtn');
 
-    // 鍙傛暟缂栬緫妯℃€佹鐩稿叧鍏冪礌
+    // 参数编辑模态框相关元素
     const propertyModal = document.getElementById('mcpPropertyModal');
     const closePropertyBtn = document.getElementById('closeMcpPropertyModalBtn');
     const cancelPropertyBtn = document.getElementById('cancelMcpPropertyBtn');
@@ -302,7 +306,7 @@ function setupMcpEventListeners() {
     addPropertyBtn.addEventListener('click', addMcpProperty);
     form.addEventListener('submit', handleMcpSubmit);
 
-    // 鍙傛暟缂栬緫妯℃€佹浜嬩欢
+    // 参数编辑模态框事件
     if (propertyModal && closePropertyBtn && cancelPropertyBtn && propertyForm && propertyTypeSelect) {
         closePropertyBtn.addEventListener('click', closePropertyModal);
         cancelPropertyBtn.addEventListener('click', closePropertyModal);
@@ -312,19 +316,19 @@ function setupMcpEventListeners() {
 }
 
 /**
- * 鎵撳紑妯℃€佹
+ * 打开模态框
  */
 function openMcpModal(index = null) {
     const isConnected = websocket && websocket.readyState === WebSocket.OPEN;
     if (isConnected) {
-        alert('WebSocket 宸茶繛鎺ワ紝鏃犳硶缂栬緫宸ュ叿');
+        alert('WebSocket 已连接，无法编辑工具');
         return;
     }
     mcpEditingIndex = index;
     const errorContainer = document.getElementById('mcpErrorContainer');
     errorContainer.innerHTML = '';
     if (index !== null) {
-        document.getElementById('mcpModalTitle').textContent = '缂栬緫宸ュ叿';
+        document.getElementById('mcpModalTitle').textContent = '编辑工具';
         const tool = mcpTools[index];
         document.getElementById('mcpToolName').value = tool.name;
         document.getElementById('mcpToolDescription').value = tool.description;
@@ -345,7 +349,7 @@ function openMcpModal(index = null) {
             });
         }
     } else {
-        document.getElementById('mcpModalTitle').textContent = '娣诲姞宸ュ叿';
+        document.getElementById('mcpModalTitle').textContent = '添加工具';
         document.getElementById('mcpToolForm').reset();
         mcpProperties = [];
     }
@@ -354,7 +358,7 @@ function openMcpModal(index = null) {
 }
 
 /**
- * 鍏抽棴妯℃€佹
+ * 关闭模态框
  */
 function closeMcpModal() {
     document.getElementById('mcpToolModal').style.display = 'none';
@@ -365,7 +369,7 @@ function closeMcpModal() {
 }
 
 /**
- * 澶勭悊琛ㄥ崟鎻愪氦
+ * 处理表单提交
  */
 function handleMcpSubmit(e) {
     e.preventDefault();
@@ -374,23 +378,24 @@ function handleMcpSubmit(e) {
     const name = document.getElementById('mcpToolName').value.trim();
     const description = document.getElementById('mcpToolDescription').value.trim();
     const mockResponseText = document.getElementById('mcpMockResponse').value.trim();
-    // 妫€鏌ュ悕绉伴噸澶?
+    // 检查名称重复
+
     const isDuplicate = mcpTools.some((tool, index) => tool.name === name && index !== mcpEditingIndex);
     if (isDuplicate) {
-        showMcpError('宸ュ叿鍚嶇О宸插瓨鍦紝璇蜂娇鐢ㄤ笉鍚岀殑鍚嶇О');
+        showMcpError('工具名称已存在，请使用不同的名称');
         return;
     }
-    // 瑙ｆ瀽妯℃嫙杩斿洖缁撴灉
+    // 解析模拟返回结果
     let mockResponse = null;
     if (mockResponseText) {
         try {
             mockResponse = JSON.parse(mockResponseText);
         } catch (e) {
-            showMcpError('妯℃嫙杩斿洖缁撴灉涓嶆槸鏈夋晥鐨?JSON 鏍煎紡: ' + e.message);
+            showMcpError('模拟返回结果不是有效的 JSON 格式: ' + e.message);
             return;
         }
     }
-    // 鏋勫缓 inputSchema
+    // 构建 inputSchema
     const inputSchema = { type: "object", properties: {}, required: [] };
     mcpProperties.forEach(prop => {
         const propSchema = { type: prop.type };
@@ -416,10 +421,10 @@ function handleMcpSubmit(e) {
     const tool = { name, description, inputSchema, mockResponse };
     if (mcpEditingIndex !== null) {
         mcpTools[mcpEditingIndex] = tool;
-        log(`宸叉洿鏂板伐鍏? ${name}`, 'success');
+        log(`已更新工具: ${name}`, 'success');
     } else {
         mcpTools.push(tool);
-        log(`宸叉坊鍔犲伐鍏? ${name}`, 'success');
+        log(`已添加工具: ${name}`, 'success');
     }
     saveMcpTools();
     renderMcpTools();
@@ -427,7 +432,7 @@ function handleMcpSubmit(e) {
 }
 
 /**
- * 鏄剧ず閿欒
+ * 显示错误
  */
 function showMcpError(message) {
     const errorContainer = document.getElementById('mcpErrorContainer');
@@ -435,93 +440,102 @@ function showMcpError(message) {
 }
 
 /**
- * 缂栬緫宸ュ叿
+ * 编辑工具
  */
 function editMcpTool(index) {
     openMcpModal(index);
 }
 
 /**
- * 鍒犻櫎宸ュ叿
+ * 删除工具
  */
 function deleteMcpTool(index) {
     const isConnected = websocket && websocket.readyState === WebSocket.OPEN;
     if (isConnected) {
-        alert('WebSocket 宸茶繛鎺ワ紝鏃犳硶缂栬緫宸ュ叿');
+        alert('WebSocket 已连接，无法编辑工具');
         return;
     }
-    if (confirm(`纭畾瑕佸垹闄ゅ伐鍏?"${mcpTools[index].name}" 鍚楋紵`)) {
+    if (confirm(`确定要删除工具 "${mcpTools[index].name}" 吗？`)) {
         const toolName = mcpTools[index].name;
         mcpTools.splice(index, 1);
         saveMcpTools();
         renderMcpTools();
-        log(`宸插垹闄ゅ伐鍏? ${toolName}`, 'info');
+        log(`已删除工具: ${toolName}`, 'info');
     }
 }
 
 /**
- * 淇濆瓨宸ュ叿
+ * 保存工具
  */
 function saveMcpTools() {
     localStorage.setItem('mcpTools', JSON.stringify(mcpTools));
 }
 
 /**
- * 鑾峰彇宸ュ叿鍒楄〃
+ * 获取工具列表
  */
 export function getMcpTools() {
     return mcpTools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 }
 
 /**
- * 鎵ц宸ュ叿璋冪敤
+ * 执行工具调用
  */
 export async function executeMcpTool(toolName, toolArgs) {
     const tool = mcpTools.find(t => t.name === toolName);
     if (!tool) {
-        log(`鏈壘鍒板伐鍏? ${toolName}`, 'error');
-        return { success: false, error: `鏈煡宸ュ叿: ${toolName}` };
+        log(`未找到工具: ${toolName}`, 'error');
+        return { success: false, error: `未知工具: ${toolName}` };
     }
 
-    // 澶勭悊鎷嶇収宸ュ叿
+    // 处理拍照工具
     if (toolName === 'self_camera_take_photo') {
         if (typeof window.takePhoto === 'function') {
-            const question = toolArgs && toolArgs.question ? toolArgs.question : '鎻忚堪涓€涓嬬湅鍒扮殑鐗╁搧';
-            log(`姝ｅ湪鎵ц鎷嶇収: ${question}`, 'info');
+            const question = toolArgs && toolArgs.question ? toolArgs.question : '描述一下看到的物品';
+            log(`正在执行拍照: ${question}`, 'info');
             const result = await window.takePhoto(question);
             return result;
         } else {
-            log('鎷嶇収鍔熻兘涓嶅彲鐢?, 'warning');
-            return { success: false, error: '鎽勫儚澶存湭鍚姩鎴栦笉鏀寔鎷嶇収鍔熻兘' };
+            log('拍照功能不可用', 'warning');
+            return { success: false, error: '摄像头未启动或不支持拍照功能' };
         }
     }
 
-    // 棰勭暀褰曞儚宸ュ叿锛氬綍鍒朵竴娈佃棰戝苟涓婁紶锛堜緵绾伐鍏疯Е鍙戞ā寮忓鐢紝鏈湡涓婚摼璺蛋VAD鑷姩瑙﹀彂锛?
+    // 预留录像工具：录制一段视频并上传（供纯工具触发模式复用，本期主链路走VAD自动触发（
+
     if (toolName === 'self_camera_record_video') {
         if (typeof window.recordVideo !== 'function') {
-            log('褰曞儚鍔熻兘涓嶅彲鐢?, 'warning');
-            return { success: false, error: '鎽勫儚澶存湭鍚姩鎴栨祻瑙堝櫒涓嶆敮鎸佸綍鍍? };
+            log('录像功能不可用
+, 'warning');
+            return { success: false, error: '摄像头未启动或浏览器不支持录像
+ };
         }
         const requestId = (toolArgs && toolArgs.request_id) ||
             ('tool_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
         const maxDurationMs = (toolArgs && toolArgs.duration_ms) || 5000;
-        log(`姝ｅ湪鎵ц褰曞儚: ${requestId}, 鏈€闀?{maxDurationMs}ms`, 'info');
+        log(`正在执行录像: ${requestId}, 最长
+{maxDurationMs}ms`, 'info');
         const blob = await window.recordVideo({ requestId, maxDurationMs });
         if (!blob) {
-            return { success: false, error: '褰曞儚澶辫触鎴栨椂闀胯繃鐭? };
+            return { success: false, error: '录像失败或时长过知
+ };
         }
         if (typeof window.uploadVideoBlob === 'function') {
             const uploadResult = await window.uploadVideoBlob(blob, requestId);
-            return { success: uploadResult.success, message: '褰曞儚宸蹭笂浼?, request_id: requestId, upload: uploadResult };
+            return { success: uploadResult.success, message: '录像已上传
+, request_id: requestId, upload: uploadResult };
         }
-        return { success: true, message: '褰曞儚瀹屾垚(鏈厤缃笂浼?', request_id: requestId };
+        return { success: true, message: '录像完成(未配置上传
+', request_id: requestId };
     }
 
-    // 濡傛灉鏈夋ā鎷熻繑鍥炵粨鏋滐紝浣跨敤瀹?
+    // 如果有模拟返回结果，使用实
+
     if (tool.mockResponse) {
-        // 鏇挎崲妯℃澘鍙橀噺
+        // 替换模板变量
         let responseStr = JSON.stringify(tool.mockResponse);
-        // 鏇挎崲 ${paramName} 鏍煎紡鐨勫彉閲?
+        // 替换 ${paramName} 格式的变量
+
         if (toolArgs) {
             Object.keys(toolArgs).forEach(key => {
                 const regex = new RegExp(`\\$\\{${key}\\}`, 'g');
@@ -530,17 +544,18 @@ export async function executeMcpTool(toolName, toolArgs) {
         }
         try {
             const response = JSON.parse(responseStr);
-            log(`宸ュ叿 ${toolName} 鎵ц鎴愬姛锛岃繑鍥炴ā鎷熺粨鏋? ${responseStr}`, 'success');
+            log(`工具 ${toolName} 执行成功，返回模拟结果: ${responseStr}`, 'success');
             return response;
         } catch (e) {
-            log(`瑙ｆ瀽妯℃嫙杩斿洖缁撴灉澶辫触: ${e.message}`, 'error');
+            log(`解析模拟返回结果失败: ${e.message}`, 'error');
             return tool.mockResponse;
         }
     }
-    // 娌℃湁妯℃嫙杩斿洖缁撴灉锛岃繑鍥為粯璁ゆ垚鍔熸秷鎭?
-    log(`宸ュ叿 ${toolName} 鎵ц鎴愬姛锛岃繑鍥為粯璁ょ粨鏋渀, 'success');
-    return { success: true, message: `宸ュ叿 ${toolName} 鎵ц鎴愬姛`, tool: toolName, arguments: toolArgs };
+    // 没有模拟返回结果，返回默认成功消息
+
+    log(`工具 ${toolName} 执行成功，返回默认结果`, 'success');
+    return { success: true, message: `工具 ${toolName} 执行成功`, tool: toolName, arguments: toolArgs };
 }
 
-// 鏆撮湶鍏ㄥ眬鏂规硶渚?HTML 鍐呰仈浜嬩欢璋冪敤
+// 暴露全局方法供 HTML 内联事件调用
 window.mcpModule = { addMcpProperty, editMcpProperty, deleteMcpProperty, editMcpTool, deleteMcpTool };

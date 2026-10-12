@@ -1,77 +1,91 @@
 import BlockingQueue from '../../utils/blocking-queue.js?v=0206';
 import { log } from '../../utils/logger.js?v=0206';
 
-// 闊抽娴佹挱鏀句笂涓嬫枃绫?
+// 音频流播放上下文类
+
 export class StreamingContext {
     constructor(opusDecoder, audioContext, sampleRate, channels, minAudioDuration) {
         this.opusDecoder = opusDecoder;
         this.audioContext = audioContext;
 
-        // 闊抽鍙傛暟
+        // 音频参数
         this.sampleRate = sampleRate;
         this.channels = channels;
         this.minAudioDuration = minAudioDuration;
 
-        // 鍒濆鍖栭槦鍒楀拰鐘舵€?
-        this.queue = [];          // 宸茶В鐮佺殑PCM闃熷垪銆傛鍦ㄦ挱鏀?
-        this.activeQueue = new BlockingQueue(); // 宸茶В鐮佺殑PCM闃熷垪銆傚噯澶囨挱鏀?
-        this.pendingAudioBufferQueue = [];  // 寰呭鐞嗙殑缂撳瓨闃熷垪
-        this.audioBufferQueue = new BlockingQueue();  // 缂撳瓨闃熷垪
-        this.playing = false;     // 鏄惁姝ｅ湪鎾斁
-        this.endOfStream = false; // 鏄惁鏀跺埌缁撴潫淇″彿
-        this.source = null;       // 褰撳墠闊抽婧?
-        this.totalSamples = 0;    // 绱Н鐨勬€绘牱鏈暟
-        this.lastPlayTime = 0;    // 涓婃鎾斁鐨勬椂闂存埑
-        this.scheduledEndTime = 0; // 宸茶皟搴﹂煶棰戠殑缁撴潫鏃堕棿
+        // 初始化队列和状态
 
-        // 鍒濆鍖栧垎鏋愬櫒鑺傜偣锛堜緵Live2D浣跨敤锛?
+        this.queue = [];          // 已解码的PCM队列。正在播放
+
+        this.activeQueue = new BlockingQueue(); // 已解码的PCM队列。准备播放
+
+        this.pendingAudioBufferQueue = [];  // 待处理的缓存队列
+        this.audioBufferQueue = new BlockingQueue();  // 缓存队列
+        this.playing = false;     // 是否正在播放
+        this.endOfStream = false; // 是否收到结束信号
+        this.source = null;       // 当前音频源
+
+        this.totalSamples = 0;    // 累积的总样本数
+        this.lastPlayTime = 0;    // 上次播放的时间戳
+        this.scheduledEndTime = 0; // 已调度音频的结束时间
+
+        // 初始化分析器节点（供Live2D使用（
+
         this.analyser = this.audioContext.createAnalyser();
         this.analyser.fftSize = 256;
     }
 
-    // 缂撳瓨闊抽鏁扮粍
+    // 缓存音频数组
     pushAudioBuffer(item) {
         this.audioBufferQueue.enqueue(...item);
     }
 
-    // 鑾峰彇闇€瑕佸鐞嗙紦瀛橀槦鍒楋紝鍗曠嚎绋嬶細鍦╝udioBufferQueue涓€鐩存洿鏂扮殑鐘舵€佷笅涓嶄細鍑虹幇瀹夊叏闂
+    // 获取需要处理缓存队列，单线程：在audioBufferQueue一直更新的状态下不会出现安全问题
     async getPendingAudioBufferQueue() {
-        // 绛夊緟鏁版嵁鍒拌揪骞惰幏鍙?
+        // 等待数据到达并获取
+
         const data = await this.audioBufferQueue.dequeue();
-        // 璧嬪€肩粰寰呭鐞嗛槦鍒?
+        // 赋值给待处理队列
+
         this.pendingAudioBufferQueue = data;
     }
 
-    // 鑾峰彇姝ｅ湪鎾斁宸茶В鐮佺殑PCM闃熷垪锛屽崟绾跨▼锛氬湪activeQueue涓€鐩存洿鏂扮殑鐘舵€佷笅涓嶄細鍑虹幇瀹夊叏闂
+    // 获取正在播放已解码的PCM队列，单线程：在activeQueue一直更新的状态下不会出现安全问题
     async getQueue(minSamples) {
         const num = minSamples - this.queue.length > 0 ? minSamples - this.queue.length : 1;
 
-        // 绛夊緟鏁版嵁骞惰幏鍙?
+        // 等待数据并获取
+
         const tempArray = await this.activeQueue.dequeue(num);
         this.queue.push(...tempArray);
     }
 
-    // 灏咺nt16闊抽鏁版嵁杞崲涓篎loat32闊抽鏁版嵁
+    // 将Int16音频数据转换为Float32音频数据
     convertInt16ToFloat32(int16Data) {
         const float32Data = new Float32Array(int16Data.length);
         for (let i = 0; i < int16Data.length; i++) {
-            // 灏哰-32768,32767]鑼冨洿杞崲涓篬-1,1]锛岀粺涓€浣跨敤32768.0閬垮厤涓嶅绉板け鐪?
+            // 将[-32768,32767]范围转换为[-1,1]，统一使用32768.0避免不对称失真
+
             float32Data[i] = int16Data[i] / 32768.0;
         }
         return float32Data;
     }
 
-    // 鑾峰彇寰呰В鐮佸寘鏁?
+    // 获取待解码包数
+
     getPendingDecodeCount() {
         return this.audioBufferQueue.length + this.pendingAudioBufferQueue.length;
     }
 
-    // 鑾峰彇寰呮挱鏀炬牱鏈暟锛堣浆鎹负鍖呮暟锛屾瘡鍖?60鏍锋湰锛?
+    // 获取待播放样本数（转换为包数，每包
+60样本（
+
     getPendingPlayCount() {
-        // 璁＄畻宸插湪闃熷垪涓殑鏍锋湰
+        // 计算已在队列中的样本
         const queuedSamples = this.activeQueue.length + this.queue.length;
 
-        // 璁＄畻宸茶皟搴︿絾鏈挱鏀剧殑鏍锋湰锛堝湪Web Audio缂撳啿鍖轰腑锛?
+        // 计算已调度但未播放的样本（在Web Audio缓冲区中）
+
         let scheduledSamples = 0;
         if (this.playing && this.scheduledEndTime) {
             const currentTime = this.audioContext.currentTime;
@@ -83,96 +97,107 @@ export class StreamingContext {
         return Math.ceil(totalSamples / 960);
     }
 
-    // 娓呯┖鎵€鏈夐煶棰戠紦鍐?
-    clearAllBuffers() {
-        log('娓呯┖鎵€鏈夐煶棰戠紦鍐?, 'info');
+    // 清空所有音频缓冲
 
-        // 娓呯┖鎵€鏈夐槦鍒楋紙浣跨敤clear鏂规硶淇濇寔瀵硅薄寮曠敤锛?
+    clearAllBuffers() {
+        log('清空所有音频缓冲', 'info');
+
+        // 清空所有队列（使用clear方法保持对象引用（
+
         this.audioBufferQueue.clear();
         this.pendingAudioBufferQueue = [];
         this.activeQueue.clear();
         this.queue = [];
 
-        // 鍋滄褰撳墠鎾斁鐨勯煶棰戞簮
+        // 停止当前播放的音频源
         if (this.source) {
             try {
                 this.source.stop();
                 this.source.disconnect();
             } catch (e) {
-                // 蹇界暐宸茬粡鍋滄鐨勯敊璇?
+                // 忽略已经停止的错误
+
             }
             this.source = null;
         }
 
-        // 閲嶇疆鐘舵€?
+        // 重置状态
+
         this.playing = false;
         this.scheduledEndTime = this.audioContext.currentTime;
         this.totalSamples = 0;
 
-        log('闊抽缂撳啿宸叉竻绌?, 'success');
+        log('音频缓冲已清空', 'success');
     }
 
-    // 鑾峰彇鍒嗘瀽鍣ㄨ妭鐐癸紙渚汱ive2D浣跨敤锛?
+    // 获取分析器节点（供Live2D使用（
+
     getAnalyser() {
         return this.analyser;
     }
 
-    // 灏哋pus鏁版嵁瑙ｇ爜涓篜CM
+    // 将Opus数据解码为PCM
     async decodeOpusFrames() {
         if (!this.opusDecoder) {
-            log('Opus瑙ｇ爜鍣ㄦ湭鍒濆鍖栵紝鏃犳硶瑙ｇ爜', 'error');
+            log('Opus解码器未初始化，无法解码', 'error');
             return;
         } else {
-            log('Opus瑙ｇ爜鍣ㄥ惎鍔?, 'info');
+            log('Opus解码器启动', 'info');
         }
 
         while (true) {
             let decodedSamples = [];
             for (const frame of this.pendingAudioBufferQueue) {
                 try {
-                    // 浣跨敤Opus瑙ｇ爜鍣ㄨВ鐮?
+                    // 使用Opus解码器解码
+
                     const frameData = this.opusDecoder.decode(frame);
                     if (frameData && frameData.length > 0) {
-                        // 杞崲涓篎loat32
+                        // 转换为Float32
                         const floatData = this.convertInt16ToFloat32(frameData);
-                        // 浣跨敤寰幆鏇夸唬灞曞紑杩愮畻绗?
+                        // 使用循环替代展开运算符
+
                         for (let i = 0; i < floatData.length; i++) {
                             decodedSamples.push(floatData[i]);
                         }
                     }
                 } catch (error) {
-                    log("Opus瑙ｇ爜澶辫触: " + error.message, 'error');
+                    log("Opus解码失败: " + error.message, 'error');
                 }
             }
 
             if (decodedSamples.length > 0) {
-                // 浣跨敤寰幆鏇夸唬灞曞紑杩愮畻绗?
+                // 使用循环替代展开运算符
+
                 for (let i = 0; i < decodedSamples.length; i++) {
                     this.activeQueue.enqueue(decodedSamples[i]);
                 }
                 this.totalSamples += decodedSamples.length;
             } else {
-                log('娌℃湁鎴愬姛瑙ｇ爜鐨勬牱鏈?, 'warning');
+                log('没有成功解码的样本', 'warning');
             }
             await this.getPendingAudioBufferQueue();
         }
     }
 
-    // 寮€濮嬫挱鏀鹃煶棰?
+    // 开始播放音频
+
     async startPlaying() {
-        this.scheduledEndTime = this.audioContext.currentTime; // 璺熻釜宸茶皟搴﹂煶棰戠殑缁撴潫鏃堕棿
+        this.scheduledEndTime = this.audioContext.currentTime; // 跟踪已调度音频的结束时间
 
         while (true) {
-            // 鍒濆缂撳啿锛氱瓑寰呰冻澶熺殑鏍锋湰鍐嶅紑濮嬫挱鏀?
+            // 初始缓冲：等待足够的样本再开始播放
+
             const minSamples = this.sampleRate * this.minAudioDuration * 2;
             if (!this.playing && this.queue.length < minSamples) {
                 await this.getQueue(minSamples);
             }
             this.playing = true;
 
-            // 鎸佺画鎾斁闃熷垪涓殑闊抽锛屾瘡娆℃挱鏀句竴涓皬鍧?
+            // 持续播放队列中的音频，每次播放一个小块
+
             while (this.playing && this.queue.length > 0) {
-                // 姣忔鎾斁120ms鐨勯煶棰戯紙2涓狾pus鍖咃級
+                // 每次播放120ms的音频（2个Opus包）
                 const playDuration = 0.12;
                 const targetSamples = Math.floor(this.sampleRate * playDuration);
                 const actualSamples = Math.min(this.queue.length, targetSamples);
@@ -183,39 +208,45 @@ export class StreamingContext {
                 const audioBuffer = this.audioContext.createBuffer(this.channels, currentSamples.length, this.sampleRate);
                 audioBuffer.copyToChannel(new Float32Array(currentSamples), 0);
 
-                // 鍒涘缓闊抽婧?
+                // 创建音频源
+
                 this.source = this.audioContext.createBufferSource();
                 this.source.buffer = audioBuffer;
 
-                // 绮剧‘璋冨害鎾斁鏃堕棿
+                // 精确调度播放时间
                 const currentTime = this.audioContext.currentTime;
                 const startTime = Math.max(this.scheduledEndTime, currentTime);
 
-                // 杩炴帴鍒板垎鏋愬櫒鍜岃緭鍑?
+                // 连接到分析器和输出
+
                 this.source.connect(this.analyser);
                 this.source.connect(this.audioContext.destination);
 
-                log(`璋冨害鎾斁 ${currentSamples.length} 涓牱鏈紝绾?${(currentSamples.length / this.sampleRate).toFixed(2)} 绉抈, 'debug');
+                log(`调度播放 ${currentSamples.length} 个样本，约 ${(currentSamples.length / this.sampleRate).toFixed(2)} 秒`, 'debug');
                 this.source.start(startTime);
 
-                // 鏇存柊涓嬩竴涓煶棰戝潡鐨勮皟搴︽椂闂?
+                // 更新下一个音频块的调度时间
+
                 const duration = audioBuffer.duration;
                 this.scheduledEndTime = startTime + duration;
                 this.lastPlayTime = startTime;
 
-                // 濡傛灉闃熷垪涓暟鎹笉瓒筹紝绛夊緟鏂版暟鎹?
+                // 如果队列中数据不足，等待新数据
+
                 if (this.queue.length < targetSamples) {
                     break;
                 }
             }
 
-            // 绛夊緟鏂版暟鎹?
+            // 等待新数据
+
             await this.getQueue(minSamples);
         }
     }
 }
 
-// 鍒涘缓streamingContext瀹炰緥鐨勫伐鍘傚嚱鏁?
+// 创建streamingContext实例的工厂函数
+
 export function createStreamingContext(opusDecoder, audioContext, sampleRate, channels, minAudioDuration) {
     return new StreamingContext(opusDecoder, audioContext, sampleRate, channels, minAudioDuration);
 }

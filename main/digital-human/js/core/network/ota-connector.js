@@ -1,30 +1,30 @@
 import { log } from '../../utils/logger.js?v=0206';
 
-// WebSocket 杩炴帴
+// WebSocket 连接
 export async function webSocketConnect(otaUrl, config) {
 
     if (!validateConfig(config)) {
         return;
     }
 
-    // 鍙戦€丱TA璇锋眰骞惰幏鍙栬繑鍥炵殑websocket淇℃伅
+    // 发送OTA请求并获取返回的websocket信息
     const otaResult = await sendOTA(otaUrl, config);
     if (!otaResult) {
-        log('鏃犳硶浠嶰TA鏈嶅姟鍣ㄨ幏鍙栦俊鎭?, 'error');
+        log('无法从OTA服务器获取信息', 'error');
         return;
     }
 
-    // 浠嶰TA鍝嶅簲涓彁鍙杦ebsocket淇℃伅
+    // 从OTA响应中提取websocket信息
     const { websocket } = otaResult;
     if (!websocket || !websocket.url) {
-        log('OTA鍝嶅簲涓己灏憌ebsocket淇℃伅', 'error');
+        log('OTA响应中缺少websocket信息', 'error');
         return;
     }
 
-    // 浣跨敤OTA杩斿洖鐨剋ebsocket URL
+    // 使用OTA返回的websocket URL
     let connUrl = new URL(websocket.url);
 
-    // 娣诲姞token鍙傛暟锛堜粠OTA鍝嶅簲涓幏鍙栵級
+    // 添加token参数（从OTA响应中获取）
     if (websocket.token) {
         if (websocket.token.startsWith("Bearer ")) {
             connUrl.searchParams.append('authorization', websocket.token);
@@ -33,13 +33,14 @@ export async function webSocketConnect(otaUrl, config) {
         }
     }
 
-    // 娣诲姞璁よ瘉鍙傛暟锛堜繚鎸佸師鏈夐€昏緫锛?
+    // 添加认证参数（保持原有逻辑）
+
     connUrl.searchParams.append('device-id', config.deviceId);
     connUrl.searchParams.append('client-id', config.clientId);
 
     const wsurl = connUrl.toString()
 
-    log(`姝ｅ湪杩炴帴: ${wsurl}`, 'info');
+    log(`正在连接: ${wsurl}`, 'info');
 
     if (wsurl) {
         document.getElementById('serverUrl').value = wsurl;
@@ -48,20 +49,21 @@ export async function webSocketConnect(otaUrl, config) {
     return new WebSocket(connUrl.toString());
 }
 
-// 楠岃瘉閰嶇疆
+// 验证配置
 function validateConfig(config) {
     if (!config.deviceMac) {
-        log('璁惧MAC鍦板潃涓嶈兘涓虹┖', 'error');
+        log('设备MAC地址不能为空', 'error');
         return false;
     }
     if (!config.clientId) {
-        log('瀹㈡埛绔疘D涓嶈兘涓虹┖', 'error');
+        log('客户端ID不能为空', 'error');
         return false;
     }
     return true;
 }
 
-// OTA鍙戦€佽姹傦紝楠岃瘉鐘舵€侊紝骞惰繑鍥炲搷搴旀暟鎹?
+// OTA发送请求，验证状态，并返回响应数据
+
 async function sendOTA(otaUrl, config) {
     try {
         const res = await fetch(otaUrl, {
@@ -102,8 +104,9 @@ async function sendOTA(otaUrl, config) {
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 
         const result = await res.json();
-        return result; // 杩斿洖瀹屾暣鐨勫搷搴旀暟鎹?
+        return result; // 返回完整的响应数据
+
     } catch (err) {
-        return null; // 澶辫触杩斿洖null
+        return null; // 失败返回null
     }
 }

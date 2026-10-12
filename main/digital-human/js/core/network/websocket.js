@@ -1,4 +1,4 @@
-// WebSocket娑堟伅澶勭悊妯″潡
+// WebSocket消息处理模块
 import { getConfig, saveConnectionUrls } from '../../config/manager.js?v=0206';
 import { uiController } from '../../ui/controller.js?v=0206';
 import { log } from '../../utils/logger.js?v=0206';
@@ -7,7 +7,7 @@ import { getAudioRecorder } from '../audio/recorder.js?v=0206';
 import { executeMcpTool, getMcpTools, setWebSocket as setMcpWebSocket } from '../mcp/tools.js?v=0206';
 import { webSocketConnect } from './ota-connector.js?v=0206';
 
-// WebSocket澶勭悊鍣ㄧ被
+// WebSocket处理器类
 export class WebSocketHandler {
     constructor() {
         this.websocket = null;
@@ -15,12 +15,13 @@ export class WebSocketHandler {
         this.onRecordButtonStateChange = null;
         this.onSessionStateChange = null;
         this.onSessionEmotionChange = null;
-        this.onChatMessage = null; // 鏂板锛氳亰澶╂秷鎭洖璋?
+        this.onChatMessage = null; // 新增：聊天消息回调
+
         this.currentSessionId = null;
         this.isRemoteSpeaking = false;
     }
 
-    // 鍙戦€乭ello鎻℃墜娑堟伅
+    // 发送hello握手消息
     async sendHelloMessage() {
         if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) return false;
 
@@ -39,13 +40,13 @@ export class WebSocketHandler {
                 }
             };
 
-            log('鍙戦€乭ello鎻℃墜娑堟伅', 'info');
+            log('发送hello握手消息', 'info');
             this.websocket.send(JSON.stringify(helloMessage));
 
             return new Promise(resolve => {
                 const timeout = setTimeout(() => {
-                    log('绛夊緟hello鍝嶅簲瓒呮椂', 'error');
-                    log('鎻愮ず: 璇峰皾璇曠偣鍑?娴嬭瘯璁よ瘉"鎸夐挳杩涜杩炴帴鎺掓煡', 'info');
+                    log('等待hello响应超时', 'error');
+                    log('提示: 请尝试点击"测试认证"按钮进行连接排查', 'info');
                     resolve(false);
                 }, 5000);
 
@@ -53,20 +54,20 @@ export class WebSocketHandler {
                     try {
                         const response = JSON.parse(event.data);
                         if (response.type === 'hello' && response.session_id) {
-                            log(`鏈嶅姟鍣ㄦ彙鎵嬫垚鍔燂紝浼氳瘽ID: ${response.session_id}`, 'success');
+                            log(`服务器握手成功，会话ID: ${response.session_id}`, 'success');
                             clearTimeout(timeout);
                             this.websocket.removeEventListener('message', onMessageHandler);
                             resolve(true);
                         }
                     } catch (e) {
-                        // 蹇界暐闈濲SON娑堟伅
+                        // 忽略非JSON消息
                     }
                 };
 
                 this.websocket.addEventListener('message', onMessageHandler);
             });
         } catch (error) {
-            log(`鍙戦€乭ello娑堟伅閿欒: ${error.message}`, 'error');
+            log(`发送hello消息错误: ${error.message}`, 'error');
             return false;
         }
     }
@@ -79,26 +80,27 @@ export class WebSocketHandler {
             session_id: sessionId,
             type: 'listen',
             state: 'detect',
-            text: '鍢匡紝浣犲ソ鍛€'
+            text: '嘿，你好呀'
         }));
-        log('鍙戦€乴isten detect娑堟伅锛屽敜閱掕瘝: 鍢匡紝浣犲ソ鍛€', 'info');
+        log('发送listen detect消息，唤醒词: 嘿，你好呀', 'info');
 
-        // listen start锛氬紑濮嬬洃鍚?
+        // listen start：开始监听
+
         this.websocket.send(JSON.stringify({
             session_id: sessionId,
             type: 'listen',
             state: 'start',
             mode: 'auto'
         }));
-        log('鍙戦€乴isten start娑堟伅', 'info');
+        log('发送listen start消息', 'info');
     }
 
-    // 澶勭悊鏂囨湰娑堟伅
+    // 处理文本消息
     handleTextMessage(message) {
         if (message.type === 'hello') {
-            log(`鏈嶅姟鍣ㄥ洖搴旓細${JSON.stringify(message, null, 2)}`, 'success');
+            log(`服务器回应：${JSON.stringify(message, null, 2)}`, 'success');
             window.cameraAvailable = true;
-            log('杩炴帴鎴愬姛锛屾憚鍍忓ご宸插彲鐢?, 'success');
+            log('连接成功，摄像头已可用', 'success');
             uiController.updateDialButton(true);
 
             this._sendWakeupMessages(message.session_id);
@@ -107,54 +109,58 @@ export class WebSocketHandler {
         } else if (message.type === 'tts') {
             this.handleTTSMessage(message);
         } else if (message.type === 'audio') {
-            log(`鏀跺埌闊抽鎺у埗娑堟伅: ${JSON.stringify(message)}`, 'info');
+            log(`收到音频控制消息: ${JSON.stringify(message)}`, 'info');
         } else if (message.type === 'stt') {
-            log(`璇嗗埆缁撴灉: ${message.text}`, 'info');
-            // 妫€鏌ユ槸鍚﹂渶瑕佺粦瀹氳澶?
-            if (message.text && (message.text.includes('缁戝畾') || message.text.includes('bind'))) {
-                log('鏀跺埌璁惧缁戝畾鎻愮ず锛屾洿鏂版憚鍍忓ご鐘舵€?, 'warning');
+            log(`识别结果: ${message.text}`, 'info');
+            // 检查是否需要绑定设备
+
+            if (message.text && (message.text.includes('绑定') || message.text.includes('bind'))) {
+                log('收到设备绑定提示，更新摄像头状态', 'warning');
                 window.cameraAvailable = false;
-                // 鍏抽棴鎽勫儚澶?
+                // 关闭摄像头
+
                 if (typeof window.stopCamera === 'function') {
                     window.stopCamera();
                 }
-                // 鏇存柊鎽勫儚澶存寜閽姸鎬?
+                // 更新摄像头按钮状态
+
                 const cameraBtn = document.getElementById('cameraBtn');
                 if (cameraBtn) {
                     cameraBtn.classList.remove('camera-active');
-                    cameraBtn.querySelector('.btn-text').textContent = '鎽勫儚澶?;
+                    cameraBtn.querySelector('.btn-text').textContent = '摄像头';
                     cameraBtn.disabled = true;
-                    cameraBtn.title = '璇峰厛缁戝畾楠岃瘉鐮?;
+                    cameraBtn.title = '请先绑定验证码';
                 }
             }
-            // 浣跨敤鏂扮殑鑱婂ぉ娑堟伅鍥炶皟鏄剧ずSTT娑堟伅
+            // 使用新的聊天消息回调显示STT消息
             if (this.onChatMessage && message.text) {
                 this.onChatMessage(message.text, true);
             }
         } else if (message.type === 'llm') {
-            log(`澶фā鍨嬪洖澶? ${message.text}`, 'info');
-            // 浣跨敤鏂扮殑鑱婂ぉ娑堟伅鍥炶皟鏄剧ずLLM鍥炲
+            log(`大模型回复: ${message.text}`, 'info');
+            // 使用新的聊天消息回调显示LLM回复
             if (this.onChatMessage && message.text) {
                 this.onChatMessage(message.text, false);
             }
 
-            // 濡傛灉鍖呭惈琛ㄦ儏锛屾洿鏂皊essionStatus琛ㄦ儏骞惰Е鍙慙ive2D鍔ㄤ綔
+            // 如果包含表情，更新sessionStatus表情并触发Live2D动作
             if (message.text && /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(message.text)) {
-                // 鎻愬彇琛ㄦ儏绗﹀彿
+                // 提取表情符号
                 const emojiMatch = message.text.match(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u);
                 if (emojiMatch && this.onSessionEmotionChange) {
                     this.onSessionEmotionChange(emojiMatch[0]);
                 }
 
-                // 瑙﹀彂Live2D鎯呯华鍔ㄤ綔
+                // 触发Live2D情绪动作
                 if (message.emotion) {
-                    console.log(`鏀跺埌鎯呯华娑堟伅: emotion=${message.emotion}, text=${message.text}`);
+                    console.log(`收到情绪消息: emotion=${message.emotion}, text=${message.text}`);
                     this.triggerLive2DEmotionAction(message.emotion);
                 }
             }
 
-            // 鍙湁褰撴枃鏈笉浠呬粎鏄〃鎯呮椂锛屾墠娣诲姞鍒板璇濅腑
-            // 绉婚櫎鏂囨湰涓殑琛ㄦ儏鍚庢鏌ユ槸鍚﹁繕鏈夊唴瀹?
+            // 只有当文本不仅仅是表情时，才添加到对话中
+            // 移除文本中的表情后检查是否还有内容
+
             const textWithoutEmoji = message.text ? message.text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim() : '';
             if (textWithoutEmoji && this.onChatMessage) {
                 this.onChatMessage(message.text, false);
@@ -164,46 +170,47 @@ export class WebSocketHandler {
         } else if (message.type === 'camera') {
             this.handleCameraMessage(message);
         } else {
-            log(`鏈煡娑堟伅绫诲瀷: ${message.type}`, 'info');
+            log(`未知消息类型: ${message.type}`, 'info');
             if (this.onChatMessage) {
-                this.onChatMessage(`鏈煡娑堟伅绫诲瀷: ${message.type}\n${JSON.stringify(message, null, 2)}`, false);
+                this.onChatMessage(`未知消息类型: ${message.type}\n${JSON.stringify(message, null, 2)}`, false);
             }
         }
     }
 
-    // 澶勭悊TTS娑堟伅
+    // 处理TTS消息
     handleTTSMessage(message) {
         if (message.state === 'start') {
-            log('鏈嶅姟鍣ㄥ紑濮嬪彂閫佽闊?, 'info');
+            log('服务器开始发送语音', 'info');
             this.currentSessionId = message.session_id;
             this.isRemoteSpeaking = true;
             if (this.onSessionStateChange) {
                 this.onSessionStateChange(true);
             }
 
-            // 鍚姩Live2D璇磋瘽鍔ㄧ敾
+            // 启动Live2D说话动画
             this.startLive2DTalking();
         } else if (message.state === 'sentence_start') {
-            log(`鏈嶅姟鍣ㄥ彂閫佽闊虫: ${message.text}`, 'info');
+            log(`服务器发送语音段: ${message.text}`, 'info');
             this.ttsSentenceCount = (this.ttsSentenceCount || 0) + 1;
 
             if (message.text && this.onChatMessage) {
                 this.onChatMessage(message.text, false);
             }
 
-            // 纭繚鍔ㄧ敾鍦ㄥ彞瀛愬紑濮嬫椂杩愯
+            // 确保动画在句子开始时运行
             const live2dManager = window.chatApp?.live2dManager;
             if (live2dManager && !live2dManager.isTalking) {
                 this.startLive2DTalking();
             }
         } else if (message.state === 'sentence_end') {
-            log(`璇煶娈电粨鏉? ${message.text}`, 'info');
+            log(`语音段结束: ${message.text}`, 'info');
 
-            // 鍙ュ瓙缁撴潫鏃朵笉娓呴櫎鍔ㄧ敾锛岀瓑寰呬笅涓€涓彞瀛愭垨鏈€缁堝仠姝?
+            // 句子结束时不清除动画，等待下一个句子或最终停止
+
         } else if (message.state === 'stop') {
-            log('鏈嶅姟鍣ㄨ闊充紶杈撶粨鏉燂紝娓呯┖鎵€鏈夐煶棰戠紦鍐?, 'info');
+            log('服务器语音传输结束，清空所有音频缓冲', 'info');
 
-            // 娓呯┖鎵€鏈夐煶棰戠紦鍐插苟鍋滄鎾斁
+            // 清空所有音频缓冲并停止播放
             const audioPlayer = getAudioPlayer();
             audioPlayer.clearAllAudio();
 
@@ -215,67 +222,75 @@ export class WebSocketHandler {
                 this.onSessionStateChange(false);
             }
 
-            // 寤惰繜鍋滄Live2D璇磋瘽鍔ㄧ敾锛岀‘淇濇墍鏈夊彞瀛愰兘鎾斁瀹屾瘯
+            // 延迟停止Live2D说话动画，确保所有句子都播放完毕
             setTimeout(() => {
                 this.stopLive2DTalking();
-                this.ttsSentenceCount = 0; // 閲嶇疆璁℃暟鍣?
-            }, 1000); // 1绉掑欢杩燂紝纭繚鎵€鏈夊彞瀛愰兘瀹屾垚
+                this.ttsSentenceCount = 0; // 重置计数器
+
+            }, 1000); // 1秒延迟，确保所有句子都完成
         }
     }
 
-    // 鍚姩Live2D璇磋瘽鍔ㄧ敾
+    // 启动Live2D说话动画
     startLive2DTalking() {
         try {
-            // 鑾峰彇Live2D绠＄悊鍣ㄥ疄渚?
+            // 获取Live2D管理器实例
+
             const live2dManager = window.chatApp?.live2dManager;
             if (live2dManager && live2dManager.live2dModel) {
-                // 浣跨敤闊抽鎾斁鍣ㄧ殑鍒嗘瀽鍣ㄨ妭鐐?
+                // 使用音频播放器的分析器节点
+
                 live2dManager.startTalking();
-                log('Live2D璇磋瘽鍔ㄧ敾宸插惎鍔?, 'info');
+                log('Live2D说话动画已启动', 'info');
             }
         } catch (error) {
-            log(`鍚姩Live2D璇磋瘽鍔ㄧ敾澶辫触: ${error.message}`, 'error');
+            log(`启动Live2D说话动画失败: ${error.message}`, 'error');
         }
     }
 
-    // 鍋滄Live2D璇磋瘽鍔ㄧ敾
+    // 停止Live2D说话动画
     stopLive2DTalking() {
         try {
             const live2dManager = window.chatApp?.live2dManager;
             if (live2dManager) {
                 live2dManager.stopTalking();
-                log('Live2D璇磋瘽鍔ㄧ敾宸插仠姝?, 'info');
+                log('Live2D说话动画已停止', 'info');
             }
         } catch (error) {
-            log(`鍋滄Live2D璇磋瘽鍔ㄧ敾澶辫触: ${error.message}`, 'error');
+            log(`停止Live2D说话动画失败: ${error.message}`, 'error');
         }
     }
 
-    // 鍒濆鍖朙ive2D闊抽鍒嗘瀽鍣?
+    // 初始化Live2D音频分析器
+
     initializeLive2DAudioAnalyzer() {
         try {
             const live2dManager = window.chatApp?.live2dManager;
             if (live2dManager) {
-                // 鍒濆鍖栭煶棰戝垎鏋愬櫒锛堜娇鐢ㄩ煶棰戞挱鏀惧櫒鐨勪笂涓嬫枃锛?
+                // 初始化音频分析器（使用音频播放器的上下文（
+
                 if (live2dManager.initializeAudioAnalyzer()) {
-                    log('Live2D闊抽鍒嗘瀽鍣ㄥ垵濮嬪寲瀹屾垚锛屽凡杩炴帴鍒伴煶棰戞挱鏀惧櫒', 'success');
+                    log('Live2D音频分析器初始化完成，已连接到音频播放器', 'success');
                 } else {
-                    log('Live2D闊抽鍒嗘瀽鍣ㄥ垵濮嬪寲澶辫触锛屽皢浣跨敤妯℃嫙鍔ㄧ敾', 'warning');
+                    log('Live2D音频分析器初始化失败，将使用模拟动画', 'warning');
                 }
             }
         } catch (error) {
-            log(`鍒濆鍖朙ive2D闊抽鍒嗘瀽鍣ㄥけ璐? ${error.message}`, 'error');
+            log(`初始化Live2D音频分析器失败: ${error.message}`, 'error');
         }
     }
 
-    // 澶勭悊鏈嶅姟绔笅鍙戠殑鎽勫儚澶村綍鍍忓懡浠わ紙VAD瑙﹀彂褰曞儚鐩村叆涓婁笅鏂囷級
+    // 处理服务端下发的摄像头录像命令（VAD触发录像直入上下文）
     handleCameraMessage(message) {
         const command = message.command;
         const requestId = message.request_id;
 
         if (command === 'start_record') {
-            log('鏈嶅姟绔姹傚綍鍍? request_id=' + requestId + ', 鏈€闀? + (message.max_duration_ms || 5000) + 'ms', 'info');
-            // 褰曞儚瀹屾垚鍚庤嚜鍔ㄤ笂浼狅紙褰曞儚涓庝笂浼犱覆鑱旓紝鏈嶅姟绔痗hat渚х瓑寰呰瑙嗛锛?
+            log('服务端请求录像
+ request_id=' + requestId + ', 最长
+ + (message.max_duration_ms || 5000) + 'ms', 'info');
+            // 录像完成后自动上传（录像与上传串联，服务端chat侧等待该视频（
+
             if (typeof window.recordVideo === 'function') {
                 window.recordVideo({
                     requestId: requestId,
@@ -285,22 +300,25 @@ export class WebSocketHandler {
                         window.uploadVideoBlob(blob, requestId);
                     }
                 }).catch(error => {
-                    log('褰曞儚娴佺▼澶辫触: ' + error.message, 'error');
+                    log('录像流程失败: ' + error.message, 'error');
                 });
             } else {
-                log('瀹㈡埛绔湭瀹炵幇褰曞儚鍔熻兘锛屽拷鐣?, 'warning');
+                log('客户端未实现录像功能，忽略
+, 'warning');
             }
         } else if (command === 'stop_record') {
-            // 鎻愬墠鍋滄锛氬綍鍍廝romise闅忓嵆resolve骞惰Е鍙戜笂浼?
+            // 提前停止：录像Promise随即resolve并触发上传
+
             if (typeof window.stopVideoRecording === 'function') {
                 window.stopVideoRecording();
             }
         } else {
-            log('鏈煡鐨刢amera鍛戒护: ' + command, 'warning');
+            log('未知的camera命令: ' + command, 'warning');
         }
     }
 
-    // 鍙戦€佸綍鍍忓紑濮嬪洖鎵э紙1绉掑唴涓嶅洖鎵ф湇鍔＄瑙嗕负瀹㈡埛绔笉鏀寔锛?
+    // 发送录像开始回执（1秒内不回执服务端视为客户端不支持）
+
     sendRecordingStartedAck(requestId) {
         if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) return;
         this.websocket.send(JSON.stringify({
@@ -308,13 +326,13 @@ export class WebSocketHandler {
             command: 'record_started',
             request_id: requestId
         }));
-        log('宸插洖鎵ecord_started: ' + requestId, 'info');
+        log('已回执record_started: ' + requestId, 'info');
     }
 
-    // 澶勭悊MCP娑堟伅
+    // 处理MCP消息
     handleMCPMessage(message) {
         const payload = message.payload || {};
-        log(`鏈嶅姟鍣ㄤ笅鍙? ${JSON.stringify(message)}`, 'info');
+        log(`服务器下发: ${JSON.stringify(message)}`, 'info');
 
         if (payload.method === 'tools/list') {
             const tools = getMcpTools();
@@ -330,15 +348,15 @@ export class WebSocketHandler {
                     }
                 }
             });
-            log(`瀹㈡埛绔笂鎶? ${replyMessage}`, 'info');
+            log(`客户端上报: ${replyMessage}`, 'info');
             this.websocket.send(replyMessage);
-            log(`鍥炲MCP宸ュ叿鍒楄〃: ${tools.length} 涓伐鍏穈, 'info');
+            log(`回复MCP工具列表: ${tools.length} 个工具`, 'info');
 
         } else if (payload.method === 'tools/call') {
             const toolName = payload.params?.name;
             const toolArgs = payload.params?.arguments;
 
-            log(`璋冪敤宸ュ叿: ${toolName} 鍙傛暟: ${JSON.stringify(toolArgs)}`, 'info');
+            log(`调用工具: ${toolName} 参数: ${JSON.stringify(toolArgs)}`, 'info');
 
             executeMcpTool(toolName, toolArgs).then(result => {
                 const replyMessage = JSON.stringify({
@@ -359,10 +377,10 @@ export class WebSocketHandler {
                     }
                 });
 
-                log(`瀹㈡埛绔笂鎶? ${replyMessage}`, 'info');
+                log(`客户端上报: ${replyMessage}`, 'info');
                 this.websocket.send(replyMessage);
             }).catch(error => {
-                log(`宸ュ叿鎵ц澶辫触: ${error.message}`, 'error');
+                log(`工具执行失败: ${error.message}`, 'error');
                 const errorReply = JSON.stringify({
                     "session_id": message.session_id || "",
                     "type": "mcp",
@@ -378,8 +396,8 @@ export class WebSocketHandler {
                 this.websocket.send(errorReply);
             });
         } else if (payload.method === 'initialize') {
-            log(`鏀跺埌宸ュ叿鍒濆鍖栬姹? ${JSON.stringify(payload.params)}`, 'info');
-            // 淇濆瓨瑙嗚鍒嗘瀽鎺ュ彛鍦板潃
+            log(`收到工具初始化请求: ${JSON.stringify(payload.params)}`, 'info');
+            // 保存视觉分析接口地址
             const visionUrl = document.getElementById('visionUrl');
             const visionConfig = payload?.params?.capabilities?.vision;
             if (visionConfig && typeof visionConfig === 'object' && visionConfig.url && visionConfig.token) {
@@ -409,14 +427,15 @@ export class WebSocketHandler {
                     }
                 }
             });
-            log(`鍥炲鍒濆鍖栧搷搴擿, 'info');
+            log(`回复初始化响应`, 'info');
             this.websocket.send(replyMessage);
         } else {
-            log(`鏈煡鐨凪CP鏂规硶: ${payload.method}`, 'warning');
+            log(`未知的MCP方法: ${payload.method}`, 'warning');
         }
     }
 
-    // 澶勭悊浜岃繘鍒舵秷鎭?
+    // 处理二进制消息
+
     async handleBinaryMessage(data) {
         try {
             let arrayBuffer;
@@ -424,9 +443,9 @@ export class WebSocketHandler {
                 arrayBuffer = data;
             } else if (data instanceof Blob) {
                 arrayBuffer = await data.arrayBuffer();
-                log(`鏀跺埌Blob闊抽鏁版嵁锛屽ぇ灏? ${arrayBuffer.byteLength}瀛楄妭`, 'debug');
+                log(`收到Blob音频数据，大小: ${arrayBuffer.byteLength}字节`, 'debug');
             } else {
-                log(`鏀跺埌鏈煡绫诲瀷鐨勪簩杩涘埗鏁版嵁: ${typeof data}`, 'warning');
+                log(`收到未知类型的二进制数据: ${typeof data}`, 'warning');
                 return;
             }
 
@@ -434,14 +453,15 @@ export class WebSocketHandler {
             const audioPlayer = getAudioPlayer();
             audioPlayer.enqueueAudioData(opusData);
         } catch (error) {
-            log(`澶勭悊浜岃繘鍒舵秷鎭嚭閿? ${error.message}`, 'error');
+            log(`处理二进制消息出错: ${error.message}`, 'error');
         }
     }
 
-    // 杩炴帴WebSocket鏈嶅姟鍣?
+    // 连接WebSocket服务器
+
     async connect() {
         const config = getConfig();
-        log('姝ｅ湪妫€鏌TA鐘舵€?..', 'info');
+        log('正在检查OTA状态...', 'info');
         saveConnectionUrls();
 
         try {
@@ -452,19 +472,19 @@ export class WebSocketHandler {
             }
             this.websocket = ws;
 
-            // 璁剧疆鎺ユ敹浜岃繘鍒舵暟鎹殑绫诲瀷涓篈rrayBuffer
+            // 设置接收二进制数据的类型为ArrayBuffer
             this.websocket.binaryType = 'arraybuffer';
 
-            // 璁剧疆 MCP 妯″潡鐨?WebSocket 瀹炰緥
+            // 设置 MCP 模块的 WebSocket 实例
             setMcpWebSocket(this.websocket);
 
-            // 璁剧疆褰曢煶鍣ㄧ殑WebSocket
+            // 设置录音器的WebSocket
             const audioRecorder = getAudioRecorder();
             audioRecorder.setWebSocket(this.websocket);
 
             this.setupEventHandlers();
 
-            // 娉ㄥ唽褰曞儚寮€濮嬪洖鎵х洃鍚紙recordVideo鎴愬姛鍚姩鍚庤Е鍙戯級
+            // 注册录像开始回执监听（recordVideo成功启动后触发）
             this._recordingStartedListener = (event) => {
                 this.sendRecordingStartedAck(event.detail?.requestId);
             };
@@ -472,7 +492,7 @@ export class WebSocketHandler {
 
             return true;
         } catch (error) {
-            log(`杩炴帴閿欒: ${error.message}`, 'error');
+            log(`连接错误: ${error.message}`, 'error');
             if (this.onConnectionStateChange) {
                 this.onConnectionStateChange(false);
             }
@@ -480,36 +500,40 @@ export class WebSocketHandler {
         }
     }
 
-    // 璁剧疆浜嬩欢澶勭悊鍣?
+    // 设置事件处理器
+
     setupEventHandlers() {
         this.websocket.onopen = async () => {
             const url = document.getElementById('serverUrl').value;
-            log(`宸茶繛鎺ュ埌鏈嶅姟鍣? ${url}`, 'success');
+            log(`已连接到服务器: ${url}`, 'success');
 
             if (this.onConnectionStateChange) {
                 this.onConnectionStateChange(true);
             }
 
-            // 杩炴帴鎴愬姛鍚庯紝榛樿鐘舵€佷负鑱嗗惉涓?
+            // 连接成功后，默认状态为聆听中
+
             this.isRemoteSpeaking = false;
             if (this.onSessionStateChange) {
                 this.onSessionStateChange(false);
             }
 
-            // 鍦╓ebSocket杩炴帴鎴愬姛鏃跺垵濮嬪寲Live2D闊抽鍒嗘瀽鍣?
+            // 在WebSocket连接成功时初始化Live2D音频分析器
+
             this.initializeLive2DAudioAnalyzer();
 
             await this.sendHelloMessage();
         };
 
         this.websocket.onclose = () => {
-            log('宸叉柇寮€杩炴帴', 'info');
+            log('已断开连接', 'info');
 
             if (this.onConnectionStateChange) {
                 this.onConnectionStateChange(false);
             }
 
-            // 娓呯悊褰曞儚鍥炴墽鐩戝惉涓庤繘琛屼腑鐨勫綍鍍忎細璇?
+            // 清理录像回执监听与进行中的录像会话
+
             if (this._recordingStartedListener) {
                 window.removeEventListener('video-recording-started', this._recordingStartedListener);
                 this._recordingStartedListener = null;
@@ -517,7 +541,7 @@ export class WebSocketHandler {
             if (typeof window.stopVideoRecording === 'function') {
                 window.stopVideoRecording();
             }
-            // 鏂嚎鏃跺交搴曚腑姝㈡湭瀹屾垚浼氳瘽
+            // 断线时彻底中止未完成会话
             if (window.chatApp && typeof window.chatApp._abortVideoRecording === 'function') {
                 window.chatApp._abortVideoRecording();
             }
@@ -525,12 +549,14 @@ export class WebSocketHandler {
             const audioRecorder = getAudioRecorder();
             audioRecorder.stop();
 
-            // 鍏抽棴鎽勫儚澶?
+            // 关闭摄像头
+
             if (typeof window.stopCamera === 'function') {
                 window.stopCamera();
             }
 
-            // 闅愯棌鎽勫儚澶存樉绀哄尯鍩?
+            // 隐藏摄像头显示区域
+
             const cameraContainer = document.getElementById('cameraContainer');
             if (cameraContainer) {
                 cameraContainer.classList.remove('active');
@@ -538,8 +564,8 @@ export class WebSocketHandler {
         };
 
         this.websocket.onerror = (error) => {
-            log(`WebSocket閿欒: ${error.message || '鏈煡閿欒'}`, 'error');
-            uiController.addChatMessage(`鈿狅笍 WebSocket閿欒: ${error.message || '鏈煡閿欒'}`, false);
+            log(`WebSocket错误: ${error.message || '未知错误'}`, 'error');
+            uiController.addChatMessage(`⚠️ WebSocket错误: ${error.message || '未知错误'}`, false);
             if (this.onConnectionStateChange) {
                 this.onConnectionStateChange(false);
             }
@@ -554,14 +580,15 @@ export class WebSocketHandler {
                     this.handleBinaryMessage(event.data);
                 }
             } catch (error) {
-                log(`WebSocket娑堟伅澶勭悊閿欒: ${error.message}`, 'error');
-                // 涓嶅啀浣跨敤鏃х殑addMessage鍑芥暟锛屽洜涓篶onversationDiv鍏冪礌涓嶅瓨鍦?
-                // 閿欒娑堟伅灏嗛€氳繃鍏朵粬鏂瑰紡鏄剧ず
+                log(`WebSocket消息处理错误: ${error.message}`, 'error');
+                // 不再使用旧的addMessage函数，因为conversationDiv元素不存在
+
+                // 错误消息将通过其他方式显示
             }
         };
     }
 
-    // 鏂紑杩炴帴
+    // 断开连接
     disconnect() {
         if (!this.websocket) return;
 
@@ -569,26 +596,30 @@ export class WebSocketHandler {
         const audioRecorder = getAudioRecorder();
         audioRecorder.stop();
 
-        // 鍏抽棴鎽勫儚澶?
+        // 关闭摄像头
+
         if (typeof window.stopCamera === 'function') {
             window.stopCamera();
         }
 
-        // 闅愯棌鎽勫儚澶存樉绀哄尯鍩?
+        // 隐藏摄像头显示区域
+
         const cameraContainer = document.getElementById('cameraContainer');
         if (cameraContainer) {
             cameraContainer.classList.remove('active');
         }
     }
 
-    // 鍙戦€佹枃鏈秷鎭?
+    // 发送文本消息
+
     sendTextMessage(text) {
         if (text === '' || !this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
             return false;
         }
 
         try {
-            // 濡傛灉瀵规柟姝ｅ湪璇磋瘽锛屽厛鍙戦€佹墦鏂秷鎭?
+            // 如果对方正在说话，先发送打断消息
+
             if (this.isRemoteSpeaking && this.currentSessionId) {
                 const abortMessage = {
                     session_id: this.currentSessionId,
@@ -596,7 +627,7 @@ export class WebSocketHandler {
                     reason: 'wake_word_detected'
                 };
                 this.websocket.send(JSON.stringify(abortMessage));
-                log('鍙戦€佹墦鏂秷鎭?, 'info');
+                log('发送打断消息', 'info');
             }
 
             const listenMessage = {
@@ -606,45 +637,45 @@ export class WebSocketHandler {
             };
 
             this.websocket.send(JSON.stringify(listenMessage));
-            log(`鍙戦€佹枃鏈秷鎭? ${text}`, 'info');
+            log(`发送文本消息: ${text}`, 'info');
 
             return true;
         } catch (error) {
-            log(`鍙戦€佹秷鎭敊璇? ${error.message}`, 'error');
+            log(`发送消息错误: ${error.message}`, 'error');
             return false;
         }
     }
 
     /**
-     * 瑙﹀彂Live2D鎯呯华鍔ㄤ綔
-     * @param {string} emotion - 鎯呯华鍚嶇О
+     * 触发Live2D情绪动作
+     * @param {string} emotion - 情绪名称
      */
     triggerLive2DEmotionAction(emotion) {
         try {
             const live2dManager = window.chatApp?.live2dManager;
             if (live2dManager && typeof live2dManager.triggerEmotionAction === 'function') {
                 live2dManager.triggerEmotionAction(emotion);
-                log(`瑙﹀彂Live2D鎯呯华鍔ㄤ綔: ${emotion}`, 'info');
+                log(`触发Live2D情绪动作: ${emotion}`, 'info');
             } else {
-                log(`鏃犳硶瑙﹀彂Live2D鎯呯华鍔ㄤ綔: Live2D绠＄悊鍣ㄦ湭鎵惧埌鎴栨柟娉曚笉鍙敤`, 'warning');
+                log(`无法触发Live2D情绪动作: Live2D管理器未找到或方法不可用`, 'warning');
             }
         } catch (error) {
-            log(`瑙﹀彂Live2D鎯呯华鍔ㄤ綔澶辫触: ${error.message}`, 'error');
+            log(`触发Live2D情绪动作失败: ${error.message}`, 'error');
         }
     }
 
-    // 鑾峰彇WebSocket瀹炰緥
+    // 获取WebSocket实例
     getWebSocket() {
         return this.websocket;
     }
 
-    // 妫€鏌ユ槸鍚﹀凡杩炴帴
+    // 检查是否已连接
     isConnected() {
         return this.websocket && this.websocket.readyState === WebSocket.OPEN;
     }
 }
 
-// 鍒涘缓鍗曚緥
+// 创建单例
 let wsHandlerInstance = null;
 
 export function getWebSocketHandler() {
