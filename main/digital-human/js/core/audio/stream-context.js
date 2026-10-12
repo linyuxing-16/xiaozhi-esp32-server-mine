@@ -77,8 +77,7 @@ export class StreamingContext {
         return this.audioBufferQueue.length + this.pendingAudioBufferQueue.length;
     }
 
-    // 获取待播放样本数（转换为包数，每包
-60样本（
+    // 获取待播放样本数（转换为包数，每包960样本（
 
     getPendingPlayCount() {
         // 计算已在队列中的样本

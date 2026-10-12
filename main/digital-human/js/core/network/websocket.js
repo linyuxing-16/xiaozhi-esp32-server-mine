@@ -286,9 +286,7 @@ export class WebSocketHandler {
         const requestId = message.request_id;
 
         if (command === 'start_record') {
-            log('服务端请求录像
- request_id=' + requestId + ', 最长
- + (message.max_duration_ms || 5000) + 'ms', 'info');
+            log('服务端请求录像: request_id=' + requestId + ', 最长' + (message.max_duration_ms || 5000) + 'ms', 'info');
             // 录像完成后自动上传（录像与上传串联，服务端chat侧等待该视频（
 
             if (typeof window.recordVideo === 'function') {
@@ -303,8 +301,7 @@ export class WebSocketHandler {
                     log('录像流程失败: ' + error.message, 'error');
                 });
             } else {
-                log('客户端未实现录像功能，忽略
-, 'warning');
+                log('客户端未实现录像功能，忽略', 'warning');
             }
         } else if (command === 'stop_record') {
             // 提前停止：录像Promise随即resolve并触发上传

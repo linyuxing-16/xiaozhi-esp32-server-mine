@@ -256,12 +256,9 @@ class App {
                 this._abortVideoRecording('摄像头已关闭');
             };
 
-            // ============ VAD触发录像：MediaRecorder 录制与上传
-============
+            // ============ VAD触发录像：MediaRecorder 录制与上传 ============
 
-            // 录像最短时长
-毫秒)：短于此丢弃，防误触（与服务端
-min_duration_ms 对应：
+            // 录像最短时长（毫秒）：短于此丢弃，防误触（与服务端 min_duration_ms 对应：
 
             const VIDEO_MIN_DURATION_MS = 800;
 
@@ -307,8 +304,7 @@ min_duration_ms 对应：
             window.recordVideo = ({ requestId, maxDurationMs = 5000 } = {}) => {
                 return new Promise((resolve) => {
                     if (!this.cameraStream) {
-                        log('无法录像：摄像头未启动（静默降级为纯文本（
-, 'warning');
+                        log('无法录像：摄像头未启动（静默降级为纯文本）', 'warning');
                         resolve(null);
                         return;
                     }
@@ -353,9 +349,7 @@ min_duration_ms 对应：
                             return;
                         }
                         if (durationMs < VIDEO_MIN_DURATION_MS) {
-                            log('录像时长过短，丢弃
-防误触
-', 'info');
+                            log('录像时长过短，丢弃（防误触）', 'info');
                             resolve(null);
                             return;
                         }
@@ -381,9 +375,7 @@ min_duration_ms 对应：
                     // 最长时长结束后再留2秒给stop_record命令，防止定时器先到
                     recorder.start(500); // 500ms分片收集
                     this._showRecordingBadge();
-                    log('开始录像
- request_id=' + requestId + ', 最长
- + maxDurationMs + 'ms', 'info');
+                    log('开始录像: request_id=' + requestId + ', 最长' + maxDurationMs + 'ms', 'info');
 
                     // 通知websocket层发送record_started回执
                     window.dispatchEvent(new CustomEvent('video-recording-started', { detail: { requestId } }));
@@ -415,16 +407,14 @@ min_duration_ms 对应：
                     const xz_tester_vision = localStorage.getItem('xz_tester_vision');
                     if (!xz_tester_vision) {
                         log('未配置视觉服务，无法上传录像', 'warning');
-                        return { success: false, error: '未配置视觉服务
- };
+                        return { success: false, error: '未配置视觉服务' };
                     }
                     const visionInfo = JSON.parse(xz_tester_vision);
                     // 优先使用服务端下发的video_url，旧配置回退为从url推导
                     const videoUrl = visionInfo.video_url ||
                         (visionInfo.url ? visionInfo.url.replace('/mcp/vision/explain', '/mcp/vision/video') : '');
                     if (!videoUrl || !visionInfo.token) {
-                        throw new Error('视觉配置缺少视频接口地址(video_url)或令牌
-token)');
+                        throw new Error('视觉配置缺少视频接口地址(video_url)或令牌(token)');
                     }
 
                     const deviceId = document.getElementById('deviceMac')?.value || '';

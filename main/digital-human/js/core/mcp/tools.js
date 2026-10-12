@@ -505,28 +505,22 @@ export async function executeMcpTool(toolName, toolArgs) {
 
     if (toolName === 'self_camera_record_video') {
         if (typeof window.recordVideo !== 'function') {
-            log('录像功能不可用
-, 'warning');
-            return { success: false, error: '摄像头未启动或浏览器不支持录像
- };
+            log('录像功能不可用', 'warning');
+            return { success: false, error: '摄像头未启动或浏览器不支持录像' };
         }
         const requestId = (toolArgs && toolArgs.request_id) ||
             ('tool_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
         const maxDurationMs = (toolArgs && toolArgs.duration_ms) || 5000;
-        log(`正在执行录像: ${requestId}, 最长
-{maxDurationMs}ms`, 'info');
+        log(`正在执行录像: ${requestId}, 最长${maxDurationMs}ms`, 'info');
         const blob = await window.recordVideo({ requestId, maxDurationMs });
         if (!blob) {
-            return { success: false, error: '录像失败或时长过知
- };
+            return { success: false, error: '录像失败或时长过短' };
         }
         if (typeof window.uploadVideoBlob === 'function') {
             const uploadResult = await window.uploadVideoBlob(blob, requestId);
-            return { success: uploadResult.success, message: '录像已上传
-, request_id: requestId, upload: uploadResult };
+            return { success: uploadResult.success, message: '录像已上传', request_id: requestId, upload: uploadResult };
         }
-        return { success: true, message: '录像完成(未配置上传
-', request_id: requestId };
+        return { success: true, message: '录像完成(未配置上传)', request_id: requestId };
     }
 
     // 如果有模拟返回结果，使用实
