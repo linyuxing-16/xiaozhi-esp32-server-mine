@@ -17,6 +17,9 @@
 import argparse
 import asyncio
 import json
+import os
+import subprocess
+import tempfile
 import time
 import uuid
 
@@ -33,7 +36,26 @@ def log(msg):
     print("[%s] %s" % (time.strftime("%H:%M:%S"), msg), flush=True)
 
 
-async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int):
+def generate_avi_sample(seconds: int, path: str) -> str:
+    """用ffmpeg预生成AVI(MJPG)样例录像（模拟ESP32固件端封装的AVI上传）。
+
+    依赖本机安装ffmpeg；失败抛异常由调用方提示退出。
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i",
+        "testsrc=duration=%d:size=320x240:rate=8" % seconds,
+        "-c:v", "mjpeg", "-q:v", "5",
+        path,
+    ]
+    log(">> 生成AVI(MJPG)样例(%ds): %s" % (seconds, " ".join(cmd)))
+    subprocess.run(cmd, check=True, timeout=60,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return path
+
+
+async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int,
+              video_format: str = "webm", sample_sec: int = 3):
     headers = {
         "device-id": device_id,
         "client-id": "web_test_client",
@@ -94,8 +116,25 @@ async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int):
                         log("<< 收到 stop_record request_id=%s" % msg.get("request_id"))
                         # 模拟录像编码耗时后上传
                         await asyncio.sleep(0.2)
+                        if video_format == "avi":
+                            # ffmpeg预生成AVI(MJPG)样例后上传（服务端应转码为MP4再入上下文）
+                            sample = os.path.join(
+                                tempfile.gettempdir(),
+                                "video_input_sample_%ds.avi" % sample_sec,
+                            )
+                            try:
+                                generate_avi_sample(sample_sec, sample)
+                            except FileNotFoundError:
+                                log("!! 未找到ffmpeg，无法生成AVI样例，请先安装ffmpeg")
+                                return
+                            with open(sample, "rb") as f:
+                                payload = f.read()
+                            filename, ctype = "record.avi", "video/x-msvideo"
+                            log(">> 样例大小 %.1fKB" % (len(payload) / 1024))
+                        else:
+                            payload, filename, ctype = FAKE_WEBM, "record.webm", "video/webm"
                         url = http_url.rstrip("/") + "/mcp/vision/video"
-                        files = {"video": ("record.webm", FAKE_WEBM, "video/webm")}
+                        files = {"video": (filename, payload, ctype)}
                         data = {"request_id": msg.get("request_id") or request_id}
                         resp = requests.post(
                             url, files=files, data=data, headers={
@@ -125,8 +164,13 @@ def main():
     parser.add_argument("--http", default="http://127.0.0.1:8003")
     parser.add_argument("--device-id", default="test_device")
     parser.add_argument("--hold-ms", type=int, default=2000, help="模拟说话时长")
+    parser.add_argument("--format", choices=["webm", "avi"], default="webm",
+                        help="上传格式：webm(假字节) 或 avi(ffmpeg预生成MJPG样例)")
+    parser.add_argument("--sample-sec", type=int, default=3,
+                        help="avi样例时长（秒），3~5秒即可")
     args = parser.parse_args()
-    asyncio.run(run(args.ws, args.http, args.device_id, args.hold_ms))
+    asyncio.run(run(args.ws, args.http, args.device_id, args.hold_ms,
+                    args.format, args.sample_sec))
 
 
 if __name__ == "__main__":

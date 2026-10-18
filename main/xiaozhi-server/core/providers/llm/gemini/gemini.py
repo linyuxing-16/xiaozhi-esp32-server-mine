@@ -145,12 +145,15 @@ class LLMProvider(LLMProviderBase):
             url = payload.get("url", "") if isinstance(payload, dict) else ""
             if not url:
                 return None
-            mime_type = "video/webm"
+            # mime兜底默认值：视频分片回退video/webm，图片分片回退image/jpeg
+            default_mime = "video/webm" if seg_type == "video_url" else "image/jpeg"
             data = ""
             if url.startswith("data:"):
-                # data:<mime>;base64,<data>
+                # data:<mime>;base64,<data> —— mime从URI前缀解析
+                # （如data:video/mp4;base64,... → video/mp4），解析失败回退默认值；
+                # 统一小写并去除空白，避免上游Content-Type大小写差异
                 header, _, data = url.partition(",")
-                mime_type = header[5:].split(";")[0] or mime_type
+                mime_type = header[5:].split(";")[0].strip().lower() or default_mime
             else:
                 # http链接暂不内联，跳过（Gemini需要file_api上传，此处仅支持base64直传）
                 return None
