@@ -15,7 +15,6 @@ THINKING_DISABLED_DOMAINS = {
     "deepseek.com": {"thinking": {"type": "disabled"}},
     "bigmodel.cn": {"thinking": {"type": "disabled"}},
     "moonshot.cn": {"thinking": {"type": "disabled"}},
-    "volces.com": {"thinking": {"type": "disabled"}},
 }
 
 
