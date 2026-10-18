@@ -98,6 +98,11 @@ features:
     max_file_mb: 25                   # 上传视频大小上限（MB）
     keep_video_turns: 1               # 对话上下文中保留视频载荷的最近轮数，更早轮次降级为纯文本
     tmp_dir: tmp/videos               # 视频上传临时目录（回合结束即删）
+    accept_avi: true                  # 是否接受AVI(MJPG)录像上传（ESP32固件端封装的AVI容器）
+    transcode:                        # AVI转码设置：AVI(MJPG)统一转成MP4后再进大模型上下文
+      enabled: true                   # 是否开启AVI转码；关闭或未安装ffmpeg时AVI上传返回415
+      ffmpeg_path: "ffmpeg"           # ffmpeg可执行文件路径（默认取PATH中的ffmpeg）
+      timeout_sec: 15                 # 转码超时（秒），超时强制终止ffmpeg并返回错误
 
 xiaozhi:
   type: hello

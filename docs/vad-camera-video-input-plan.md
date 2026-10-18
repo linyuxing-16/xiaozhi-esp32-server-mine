@@ -18,7 +18,7 @@
 | 对比项 | 现有 MCP Vision（拍照识物） | 本需求 |
 | --- | --- | --- |
 | 触发方式 | 用户主动说"看看这是什么"→ LLM 调用工具 self_camera_take_photo（自拍摄像头拍照） | VAD 一检测到说话就自动触发 |
-| 媒体类型 | 单帧 JPEG（图片） | 视频片段（webm/mp4 或帧序列） |
+| 媒体类型 | 单帧 JPEG（图片） | 视频片段（webm/mp4 或帧序列）；服务端额外支持 ESP32 固件封装的 AVI(MJPG) 上传并自动转码为 MP4（v1.1 起，见 docs/video-input-avi-mjpeg-support-plan.md） |
 | 消费方式 | 交给独立的 VLLM（视觉语言模型）模块生成**文字描述**，工具结果回到主 LLM | **直接**把视频本体放进主 LLM 的 messages（消息列表）里 |
 | 上下文 | 不进历史 | 进入对话历史（需管理生命周期，防止 token 爆炸） |
 
@@ -186,7 +186,7 @@
 ### 5.2 HTTP 视频上传
 - POST /mcp/vision/video（与 /mcp/vision/explain 同端口，默认 8003）
 - Headers（请求头）：Device-Id、Client-Id、Authorization: Bearer <token>（token 与 vision 下发的同一个）
-- Body：multipart/form-data：request_id（字符串）、video（文件，webm/mp4）
+- Body：multipart/form-data：request_id（字符串）、video（文件，webm/mp4；v1.1 起亦支持 ESP32 固件的 AVI(MJPG)，服务端自动转码为 MP4 后入上下文）
 - 限制：≤max_file_mb（默认25MB）、时长≤max_duration_ms、content-type（内容类型）白名单
 - 返回：{"success":true}；错误码 401（鉴权失败）/404（无活跃会话）/413（超大）/415（格式）
 
