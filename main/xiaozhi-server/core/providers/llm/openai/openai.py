@@ -61,6 +61,9 @@ class LLMProvider(LLMProviderBase):
             except (ValueError, TypeError):
                 setattr(self, param, None)
 
+        # 透传自定义请求体参数（如推理模型的 reasoning_effort）
+        self.extra_body = config.get("extra_body") or {}
+
         logger.debug(
             f"意图识别参数初始化: {self.temperature}, {self.max_tokens}, {self.top_p}, {self.frequency_penalty}"
         )
@@ -92,6 +95,12 @@ class LLMProvider(LLMProviderBase):
                 logger.bind(tag=TAG).info(f"为域名 {domain} 禁用思考模式，参数: {params}")
                 break
 
+    def _apply_extra_body(self, request_params: dict):
+        """透传配置中的 extra_body（如 reasoning_effort 降低思考挡位）"""
+        if self.extra_body:
+            request_params.setdefault("extra_body", {}).update(self.extra_body)
+            logger.bind(tag=TAG).debug(f"透传 extra_body: {self.extra_body}")
+
     def response(self, session_id, dialogue, **kwargs):
         dialogue = self.normalize_dialogue(dialogue)
 
@@ -115,6 +124,7 @@ class LLMProvider(LLMProviderBase):
 
         # 禁用思考模式
         self._apply_thinking_disabled(request_params)
+        self._apply_extra_body(request_params)
 
         responses = self.client.chat.completions.create(**request_params)
 
@@ -161,6 +171,7 @@ class LLMProvider(LLMProviderBase):
 
         # 禁用思考模式
         self._apply_thinking_disabled(request_params)
+        self._apply_extra_body(request_params)
 
         stream = self.client.chat.completions.create(**request_params)
 
