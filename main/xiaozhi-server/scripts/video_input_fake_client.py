@@ -55,10 +55,11 @@ def generate_avi_sample(seconds: int, path: str) -> str:
 
 
 async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int,
-              video_format: str = "webm", sample_sec: int = 3):
+              video_format: str = "webm", sample_sec: int = 3,
+              client_id: str = "web_test_client"):
     headers = {
         "device-id": device_id,
-        "client-id": "web_test_client",
+        "client-id": client_id,
     }
     log("连接 %s" % ws_url)
     async with websockets.connect(ws_url, additional_headers=headers) as ws:
@@ -76,6 +77,8 @@ async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int,
 
         request_id = None
         start_record_at = None
+        # MCP initialize下发的视频上传token（鉴权已无免token旁路）
+        vision_token = None
 
         # 后台任务：模拟用户说话（listen start → 等待 → listen stop）
         async def speak_later():
@@ -97,6 +100,20 @@ async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int,
 
                 if msg.get("type") == "hello":
                     log("握手成功 session_id=%s" % msg.get("session_id"))
+                    continue
+
+                if msg.get("type") == "mcp":
+                    # 从MCP initialize下发中取出视觉/视频上传用的真实token，
+                    # 服务端已不再有"Bearer dummy"免鉴权旁路
+                    vision = (
+                        (msg.get("payload") or {})
+                        .get("params", {})
+                        .get("capabilities", {})
+                        .get("vision")
+                    )
+                    if isinstance(vision, dict) and vision.get("token"):
+                        vision_token = vision["token"]
+                        log("已获取视频上传token")
                     continue
 
                 if msg.get("type") == "camera":
@@ -136,12 +153,15 @@ async def run(ws_url: str, http_url: str, device_id: str, hold_ms: int,
                         url = http_url.rstrip("/") + "/mcp/vision/video"
                         files = {"video": (filename, payload, ctype)}
                         data = {"request_id": msg.get("request_id") or request_id}
+                        upload_headers = {
+                            "Device-Id": device_id,
+                            "Client-Id": client_id,
+                        }
+                        if vision_token:
+                            upload_headers["Authorization"] = "Bearer " + vision_token
                         resp = requests.post(
-                            url, files=files, data=data, headers={
-                                "Device-Id": device_id,
-                                "Client-Id": "web_test_client",
-                                "Authorization": "Bearer dummy",
-                            }, timeout=10,
+                            url, files=files, data=data,
+                            headers=upload_headers, timeout=10,
                         )
                         log(">> 上传视频 %s → HTTP %s %s"
                             % (url, resp.status_code, resp.text[:120]))
@@ -168,9 +188,11 @@ def main():
                         help="上传格式：webm(假字节) 或 avi(ffmpeg预生成MJPG样例)")
     parser.add_argument("--sample-sec", type=int, default=3,
                         help="avi样例时长（秒），3~5秒即可")
+    parser.add_argument("--client-id", default="web_test_client",
+                        help="客户端ID（上传鉴权用）")
     args = parser.parse_args()
     asyncio.run(run(args.ws, args.http, args.device_id, args.hold_ms,
-                    args.format, args.sample_sec))
+                    args.format, args.sample_sec, args.client_id))
 
 
 if __name__ == "__main__":
