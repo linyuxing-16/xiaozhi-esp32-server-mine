@@ -49,6 +49,8 @@ def make_config(**video_overrides) -> dict:
     video_cfg.update(video_overrides)
     return {
         "server": {"auth_key": "test_auth_key_for_video_handler"},
+        # 测试需要免鉴权旁路，须显式开启（生产默认关闭）
+        "allow_test_client": True,
         "features": {"video_input": video_cfg},
     }
 

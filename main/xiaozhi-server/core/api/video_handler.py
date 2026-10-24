@@ -96,8 +96,8 @@ class VideoHandler(BaseHandler):
         auth_header = request.headers.get("Authorization", "")
         client_id = request.headers.get("Client-Id", "")
 
-        # 允许测试客户端跳过认证
-        if client_id == "web_test_client":
+        # 免鉴权测试客户端：仅在配置显式开启 allow_test_client 时生效
+        if self._is_allowed_test_client(client_id):
             device_id = request.headers.get("Device-Id", "test_device")
             return True, device_id
 

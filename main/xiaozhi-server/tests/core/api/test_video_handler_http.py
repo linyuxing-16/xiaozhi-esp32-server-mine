@@ -24,6 +24,8 @@ from core.handle.videoInputController import VideoInputController
 def make_app_config() -> dict:
     return {
         "server": {"auth_key": "test_auth_key_for_video_handler"},
+        # 测试需要免鉴权旁路，须显式开启（生产默认关闭）
+        "allow_test_client": True,
         "features": {"video_input": {"enabled": True, "max_file_mb": 1,
                                      "tmp_dir": "tmp/test_videos"}},
     }

@@ -87,6 +87,10 @@ exit_commands:
 
 # 功能开关（Features，可选功能特性）
 features:
+  # 免鉴权测试客户端（Client-Id: web_test_client）开关。
+  # 仅供本地联调/自动化测试使用，生产环境务必保持 false，
+  # 否则任何人都能伪造 Device-Id 跳过 Bearer token 校验。
+  allow_test_client: false
   video_input:                        # VAD触发摄像头录像，视频直入大模型上下文
     enabled: false                    # 总开关（默认关闭，隐私考虑；开启前请确认合规）
     trigger_on_vad: true              # 服务端VAD检测到人声上升沿时触发录像
