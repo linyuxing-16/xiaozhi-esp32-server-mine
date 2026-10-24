@@ -81,6 +81,11 @@ class SimpleHttpServer:
                         # 视频上传接口：VAD触发录像后客户端上传视频，直入大模型上下文
                         web.get("/mcp/vision/video", self.video_handler.handle_get),
                         web.post("/mcp/vision/video", self.video_handler.handle_post),
+                        # CORS预检：网页端跨源上传带 Authorization/Device-Id 自定义头，
+                        # 缺少OPTIONS路由会导致浏览器预检405被拦
+                        web.options(
+                            "/mcp/vision/video", self.video_handler.handle_options
+                        ),
                     ]
                 )
 
