@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import subprocess
 import time
 import uuid
 
@@ -40,6 +41,8 @@ class VideoInputController:
         self.trigger_on_listen_start = bool(cfg.get("trigger_on_listen_start", True))
         self.cooldown_ms = int(cfg.get("cooldown_ms", 8000))
         self.max_duration_ms = int(cfg.get("max_duration_ms", 5000))
+        # 最短录像时长：过短的录像按误触丢弃，不进上下文（原先仅客户端硬编码校验）
+        self.min_duration_ms = int(cfg.get("min_duration_ms", 800))
         self.upload_wait_timeout_ms = int(cfg.get("upload_wait_timeout_ms", 6000))
         self.keep_video_turns = int(cfg.get("keep_video_turns", 1))
         self.tmp_dir = str(cfg.get("tmp_dir", "tmp/videos"))
@@ -244,9 +247,29 @@ class VideoInputController:
             self._log("warning", "收到未匹配的录像上传: request_id=" + str(request_id) + "，丢弃")
             self._safe_delete(file_path)
             return False
+        # 最短时长过滤（防误触）：用 ffprobe 读取真实时长；探测不到时跳过校验，
+        # 绝不因探测失败误杀正常录像（客户端自身也有一道 min_duration_ms 校验）。
+        duration_ms = self._probe_duration_ms(file_path)
+        if (
+            duration_ms is not None
+            and self.min_duration_ms > 0
+            and duration_ms < self.min_duration_ms
+        ):
+            self.session = None
+            self._clear_timers()
+            self._safe_delete(file_path)
+            self._log(
+                "info",
+                "录像时长过短(" + format(duration_ms, ".0f") + "ms < "
+                + str(self.min_duration_ms) + "ms)，按误触丢弃",
+            )
+            return False
         session.uploaded = True
         session.done = True
         self._clear_timers()
+        # 覆盖前先清理上一段未被取用的临时文件，避免文件泄漏
+        if self.pending_video is not None:
+            self._safe_delete(self.pending_video.get("file_path"))
         self.pending_video = {
             "request_id": request_id,
             "file_path": file_path,
@@ -334,6 +357,33 @@ class VideoInputController:
                 os.remove(file_path)
         except Exception as e:
             self._log("error", "删除视频临时文件失败: " + str(e))
+
+    def _probe_duration_ms(self, file_path) -> float:
+        """用ffprobe读取视频时长（毫秒）。探测失败返回None，调用方应跳过时长校验。
+
+        只做一次短超时的本地探测，不阻塞事件循环（本方法可能运行在事件循环内，
+        故用线程池执行同步子进程）。
+        """
+        ffprobe = getattr(self, "ffprobe_path", None) or "ffprobe"
+        timeout = float(getattr(self, "probe_timeout_sec", 5) or 5)
+        cmd = [
+            ffprobe, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            file_path,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout
+            )
+            if proc.returncode != 0:
+                return None
+            raw = (proc.stdout or b"").decode("utf-8", "ignore").strip()
+            if not raw or raw.upper() == "N/A":
+                return None
+            return float(raw) * 1000.0
+        except Exception:
+            return None
 
     def get_tmp_dir(self) -> str:
         """确保并返回视频临时目录"""
